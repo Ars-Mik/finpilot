@@ -1,0 +1,104 @@
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { X } from 'lucide-react';
+import { todayLocal } from '../lib/finance';
+import { CATEGORIES, type TransactionInput, type TransactionType } from '../types/finance';
+
+type TransactionFormProps = {
+  onClose: () => void;
+  onSave: (transaction: TransactionInput) => void;
+};
+
+export default function TransactionForm({ onClose, onSave }: TransactionFormProps) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [type, setType] = useState<TransactionType>('expense');
+  const [title, setTitle] = useState('');
+  const [amount, setAmount] = useState('');
+  const [category, setCategory] = useState<string>(CATEGORIES.expense[0]);
+  const [date, setDate] = useState(todayLocal);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    dialog?.showModal();
+    return () => {
+      if (dialog?.open) dialog.close();
+    };
+  }, []);
+
+  function changeType(nextType: TransactionType) {
+    setType(nextType);
+    setCategory(CATEGORIES[nextType][0]);
+  }
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const normalizedAmount = amount.trim().replace(',', '.');
+    const numericAmount = Number(normalizedAmount);
+    const amountCents = Math.round(numericAmount * 100);
+
+    if (!/^\d+(?:\.\d{1,2})?$/.test(normalizedAmount)
+      || !Number.isSafeInteger(amountCents)
+      || amountCents <= 0) {
+      setError('Укажи сумму больше нуля, не более двух знаков после запятой.');
+      return;
+    }
+
+    const trimmedTitle = title.trim();
+    if (!trimmedTitle) {
+      setError('Укажи название операции.');
+      return;
+    }
+
+    if (!CATEGORIES[type].includes(category) || !date || date > todayLocal()) {
+      setError('Проверь категорию и дату операции.');
+      return;
+    }
+
+    onSave({ type, title: trimmedTitle, amountCents, category, date });
+    onClose();
+  }
+
+  return (
+    <dialog className="transaction-dialog" ref={dialogRef} onCancel={onClose} aria-labelledby="transaction-dialog-title">
+      <div className="dialog-heading">
+        <div>
+          <div className="eyebrow">Новая запись</div>
+          <h2 id="transaction-dialog-title">Добавить операцию</h2>
+        </div>
+        <button className="icon-button" type="button" onClick={onClose} aria-label="Закрыть окно"><X size={20} /></button>
+      </div>
+
+      <form onSubmit={handleSubmit} className="transaction-form">
+        <div className="type-switch" role="group" aria-label="Тип операции">
+          <button type="button" aria-pressed={type === 'expense'} className={type === 'expense' ? 'type-switch__active' : ''} onClick={() => changeType('expense')}>Расход</button>
+          <button type="button" aria-pressed={type === 'income'} className={type === 'income' ? 'type-switch__active' : ''} onClick={() => changeType('income')}>Доход</button>
+        </div>
+        <label className="field">
+          <span>Название</span>
+          <input autoFocus required maxLength={80} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Например, продукты" />
+        </label>
+        <label className="field">
+          <span>Сумма, ₽</span>
+          <input required inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0,00" />
+        </label>
+        <div className="form-grid">
+          <label className="field">
+            <span>Категория</span>
+            <select value={category} onChange={(event) => setCategory(event.target.value)}>
+              {CATEGORIES[type].map((option) => <option key={option} value={option}>{option}</option>)}
+            </select>
+          </label>
+          <label className="field">
+            <span>Дата</span>
+            <input type="date" required max={todayLocal()} value={date} onChange={(event) => setDate(event.target.value)} />
+          </label>
+        </div>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <div className="dialog-actions">
+          <button className="button button--secondary" type="button" onClick={onClose}>Отмена</button>
+          <button className="button button--primary" type="submit">Сохранить</button>
+        </div>
+      </form>
+    </dialog>
+  );
+}
