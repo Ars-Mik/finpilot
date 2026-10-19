@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { createTransaction, getTransactions, removeTransaction } from '../api/transactions';
+import { createTransaction, getTransactions, removeTransaction, updateTransaction as updateTransactionRequest } from '../api/transactions';
 import { createDemoTransactions } from '../data/demoTransactions';
 import type { Transaction, TransactionInput } from '../types/finance';
 
@@ -18,12 +18,13 @@ export function useTransactions() {
   const [error, setError] = useState<string | null>(null);
   const busyRef = useRef(false);
 
-  const refresh = useCallback(async (signal?: AbortSignal) => {
-    setIsLoading(true);
-    setError(null);
+  const loadTransactions = useCallback(async (signal?: AbortSignal) => {
     try {
       const items = await getTransactions(signal);
-      if (!signal?.aborted) setTransactions(items);
+      if (!signal?.aborted) {
+        setTransactions(items);
+        setError(null);
+      }
     } catch (cause) {
       if (!signal?.aborted) {
         setError(cause instanceof Error ? cause.message : 'Не удалось загрузить операции.');
@@ -33,34 +34,17 @@ export function useTransactions() {
     }
   }, []);
 
-  
-useEffect(() => {
-  const controller = new AbortController();
+  const refresh = useCallback(async (signal?: AbortSignal) => {
+    setIsLoading(true);
+    setError(null);
+    await loadTransactions(signal);
+  }, [loadTransactions]);
 
-  void getTransactions(controller.signal)
-    .then((items) => {
-      if (!controller.signal.aborted) {
-        setTransactions(items);
-      }
-    })
-    .catch((cause: unknown) => {
-      if (controller.signal.aborted) return;
-
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : 'Не удалось загрузить операции.',
-      );
-    })
-    .finally(() => {
-      if (!controller.signal.aborted) {
-        setIsLoading(false);
-      }
-    });
-
-  return () => controller.abort();
-}, []);
-
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadTransactions(controller.signal);
+    return () => controller.abort();
+  }, [loadTransactions]);
 
   async function mutate(operation: () => Promise<void>): Promise<void> {
     if (busyRef.current) throw new Error('Дождись завершения предыдущей операции.');
@@ -83,6 +67,13 @@ useEffect(() => {
     await mutate(async () => {
       const created = await createTransaction(input);
       setTransactions((previous) => [created, ...previous]);
+    });
+  }
+
+  async function editTransaction(id: string, input: TransactionInput): Promise<void> {
+    await mutate(async () => {
+      const updated = await updateTransactionRequest(id, input);
+      setTransactions((previous) => previous.map((transaction) => transaction.id === id ? updated : transaction));
     });
   }
 
@@ -120,6 +111,7 @@ useEffect(() => {
     refresh,
     clearError: () => setError(null),
     addTransaction,
+    editTransaction,
     deleteTransaction,
     resetDemo,
   };
