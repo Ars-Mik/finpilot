@@ -5,9 +5,10 @@ import type { Transaction } from '../types/finance';
 type TransactionListProps = {
   transactions: readonly Transaction[];
   onDelete?: (id: string) => void;
+  isBusy?: boolean;
 };
 
-export default function TransactionList({ transactions, onDelete }: TransactionListProps) {
+export default function TransactionList({ transactions, onDelete, isBusy = false }: TransactionListProps) {
   if (transactions.length === 0) {
     return <div className="empty-state">Операции не найдены. Измени фильтры или добавь новую операцию.</div>;
   }
@@ -30,6 +31,7 @@ export default function TransactionList({ transactions, onDelete }: TransactionL
             <button
               className="icon-button transaction-row__delete"
               type="button"
+              disabled={isBusy}
               aria-label={`Удалить операцию ${transaction.title}`}
               title="Удалить операцию"
               onClick={() => {

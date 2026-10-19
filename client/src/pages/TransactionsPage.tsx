@@ -7,11 +7,12 @@ import type { Transaction, TransactionType } from '../types/finance';
 type TransactionsPageProps = {
   transactions: readonly Transaction[];
   onDelete: (id: string) => void;
+  isBusy?: boolean;
 };
 
 const PAGE_SIZE = 10;
 
-export default function TransactionsPage({ transactions, onDelete }: TransactionsPageProps) {
+export default function TransactionsPage({ transactions, onDelete, isBusy }: TransactionsPageProps) {
   const [query, setQuery] = useState('');
   const [type, setType] = useState<TransactionType | 'all'>('all');
   const [month, setMonth] = useState('all');
@@ -60,7 +61,7 @@ export default function TransactionsPage({ transactions, onDelete }: Transaction
           <span>Доходы: <strong className="positive">{formatMoney(totals.income)}</strong></span>
           <span>Расходы: <strong>{formatMoney(totals.expense)}</strong></span>
         </div>
-        <TransactionList transactions={visible} onDelete={onDelete} />
+        <TransactionList transactions={visible} onDelete={onDelete} isBusy={isBusy} />
         {totalPages > 1 && (
           <div className="pagination">
             <button className="button button--secondary" type="button" disabled={currentPage === 1} onClick={() => setPage((previous) => previous - 1)}>Назад</button>
