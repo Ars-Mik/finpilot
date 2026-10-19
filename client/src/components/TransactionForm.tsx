@@ -5,7 +5,7 @@ import { CATEGORIES, type TransactionInput, type TransactionType } from '../type
 
 type TransactionFormProps = {
   onClose: () => void;
-  onSave: (transaction: TransactionInput) => void;
+  onSave: (transaction: TransactionInput) => Promise<void>;
 };
 
 export default function TransactionForm({ onClose, onSave }: TransactionFormProps) {
@@ -16,6 +16,7 @@ export default function TransactionForm({ onClose, onSave }: TransactionFormProp
   const [category, setCategory] = useState<string>(CATEGORIES.expense[0]);
   const [date, setDate] = useState(todayLocal);
   const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -30,8 +31,10 @@ export default function TransactionForm({ onClose, onSave }: TransactionFormProp
     setCategory(CATEGORIES[nextType][0]);
   }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSubmitting) return;
+
     const normalizedAmount = amount.trim().replace(',', '.');
     const numericAmount = Number(normalizedAmount);
     const amountCents = Math.round(numericAmount * 100);
@@ -54,49 +57,56 @@ export default function TransactionForm({ onClose, onSave }: TransactionFormProp
       return;
     }
 
-    onSave({ type, title: trimmedTitle, amountCents, category, date });
-    onClose();
+    setIsSubmitting(true);
+    setError('');
+    try {
+      await onSave({ type, title: trimmedTitle, amountCents, category, date });
+      onClose();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Не удалось сохранить операцию.');
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
-    <dialog className="transaction-dialog" ref={dialogRef} onCancel={onClose} aria-labelledby="transaction-dialog-title">
+    <dialog
+      className="transaction-dialog"
+      ref={dialogRef}
+      onCancel={(event) => { if (isSubmitting) event.preventDefault(); else onClose(); }}
+      aria-labelledby="transaction-dialog-title"
+    >
       <div className="dialog-heading">
-        <div>
-          <div className="eyebrow">Новая запись</div>
-          <h2 id="transaction-dialog-title">Добавить операцию</h2>
-        </div>
-        <button className="icon-button" type="button" onClick={onClose} aria-label="Закрыть окно"><X size={20} /></button>
+        <div><div className="eyebrow">Новая запись</div><h2 id="transaction-dialog-title">Добавить операцию</h2></div>
+        <button className="icon-button" type="button" disabled={isSubmitting} onClick={onClose} aria-label="Закрыть окно"><X size={20} /></button>
       </div>
-
-      <form onSubmit={handleSubmit} className="transaction-form">
-        <div className="type-switch" role="group" aria-label="Тип операции">
-          <button type="button" aria-pressed={type === 'expense'} className={type === 'expense' ? 'type-switch__active' : ''} onClick={() => changeType('expense')}>Расход</button>
-          <button type="button" aria-pressed={type === 'income'} className={type === 'income' ? 'type-switch__active' : ''} onClick={() => changeType('income')}>Доход</button>
-        </div>
-        <label className="field">
-          <span>Название</span>
-          <input autoFocus required maxLength={80} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Например, продукты" />
-        </label>
-        <label className="field">
-          <span>Сумма, ₽</span>
-          <input required inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0,00" />
-        </label>
-        <div className="form-grid">
-          <label className="field">
-            <span>Категория</span>
-            <select value={category} onChange={(event) => setCategory(event.target.value)}>
-              {CATEGORIES[type].map((option) => <option key={option} value={option}>{option}</option>)}
-            </select>
+      <form onSubmit={(event) => { void handleSubmit(event); }} className="transaction-form" aria-busy={isSubmitting}>
+        <fieldset className="form-fields" disabled={isSubmitting}>
+          <div className="type-switch" role="group" aria-label="Тип операции">
+            <button type="button" aria-pressed={type === 'expense'} className={type === 'expense' ? 'type-switch__active' : ''} onClick={() => changeType('expense')}>Расход</button>
+            <button type="button" aria-pressed={type === 'income'} className={type === 'income' ? 'type-switch__active' : ''} onClick={() => changeType('income')}>Доход</button>
+          </div>
+          <label className="field"><span>Название</span>
+            <input autoFocus required maxLength={80} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Например, продукты" />
           </label>
-          <label className="field">
-            <span>Дата</span>
-            <input type="date" required max={todayLocal()} value={date} onChange={(event) => setDate(event.target.value)} />
+          <label className="field"><span>Сумма, ₽</span>
+            <input required inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0,00" />
           </label>
-        </div>
+          <div className="form-grid">
+            <label className="field"><span>Категория</span>
+              <select value={category} onChange={(event) => setCategory(event.target.value)}>
+                {CATEGORIES[type].map((option) => <option key={option} value={option}>{option}</option>)}
+              </select>
+            </label>
+            <label className="field"><span>Дата</span>
+              <input type="date" required max={todayLocal()} value={date} onChange={(event) => setDate(event.target.value)} />
+            </label>
+          </div>
+        </fieldset>
         {error && <p className="form-error" role="alert">{error}</p>}
         <div className="dialog-actions">
-          <button className="button button--secondary" type="button" onClick={onClose}>Отмена</button>
-          <button className="button button--primary" type="submit">Сохранить</button>
+          <button className="button button--secondary" type="button" disabled={isSubmitting} onClick={onClose}>Отмена</button>
+          <button className="button button--primary" type="submit" disabled={isSubmitting}>{isSubmitting ? 'Сохранение…' : 'Сохранить'}</button>
         </div>
       </form>
     </dialog>

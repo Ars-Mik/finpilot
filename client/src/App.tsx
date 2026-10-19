@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowLeftRight, ChartNoAxesCombined, LayoutDashboard, Plus, RotateCcw, ShieldCheck } from 'lucide-react';
+import { AlertCircle, ArrowLeftRight, ChartNoAxesCombined, LayoutDashboard, Plus, RotateCcw, ShieldCheck } from 'lucide-react';
 import { BrowserRouter, NavLink, Navigate, Route, Routes, useLocation } from 'react-router';
 import TransactionForm from './components/TransactionForm';
 import { useTransactions } from './hooks/useTransactions';
@@ -8,7 +8,10 @@ import TransactionsPage from './pages/TransactionsPage';
 import './App.css';
 
 function AppContent() {
-  const { transactions, addTransaction, deleteTransaction, resetDemo } = useTransactions();
+  const {
+    transactions, isLoading, isBusy, error, refresh, clearError,
+    addTransaction, deleteTransaction, resetDemo,
+  } = useTransactions();
   const [isFormOpen, setFormOpen] = useState(false);
   const location = useLocation();
 
@@ -16,6 +19,21 @@ function AppContent() {
     { to: '/', label: 'Обзор', icon: LayoutDashboard, end: true },
     { to: '/transactions', label: 'Операции', icon: ArrowLeftRight, end: false },
   ];
+
+  async function handleResetDemo() {
+    if (!window.confirm('Удалить все операции из локальной базы и загрузить демонстрационные данные?')) return;
+    try {
+      await resetDemo();
+    } catch {
+      // Error is displayed by the hook; the final data set is reloaded from PostgreSQL.
+    }
+  }
+
+  function handleDelete(id: string) {
+    void deleteTransaction(id).catch(() => {
+      // Error is displayed by the hook; retain the operation on failed deletion.
+    });
+  }
 
   return (
     <div className="app-shell">
@@ -33,22 +51,47 @@ function AppContent() {
           ))}
         </nav>
         <div className="sidebar__bottom">
-          <div className="privacy-note"><ShieldCheck size={21} /><div><strong>Демо-режим</strong><span>Данные сохраняются только в этом браузере.</span></div></div>
-          <button className="sidebar__reset" type="button" onClick={() => { if (window.confirm('Сбросить операции и восстановить демонстрационные данные?')) resetDemo(); }}><RotateCcw size={16} /> Сбросить демоданные</button>
+          <div className="privacy-note"><ShieldCheck size={21} /><div><strong>Локальная разработка</strong><span>Операции хранятся в PostgreSQL. Авторизация пока не подключена.</span></div></div>
+          <button className="sidebar__reset" type="button" disabled={isLoading || isBusy} onClick={() => { void handleResetDemo(); }}>
+            <RotateCcw size={16} /> {isBusy ? 'Подожди…' : 'Загрузить демоданные'}
+          </button>
         </div>
       </aside>
 
       <div className="main-area">
         <header className="topbar">
           <div className="topbar__location"><span>FinPilot</span><span className="topbar__separator">/</span><strong>{location.pathname === '/transactions' ? 'Операции' : 'Обзор'}</strong></div>
-          <button className="button button--primary" type="button" onClick={() => setFormOpen(true)}><Plus size={19} /> <span>Новая операция</span></button>
+          <button className="button button--primary" type="button" disabled={isLoading || isBusy} onClick={() => setFormOpen(true)}>
+            <Plus size={19} /> <span>Новая операция</span>
+          </button>
         </header>
         <main className="page-content">
-          <Routes>
-            <Route path="/" element={<DashboardPage transactions={transactions} />} />
-            <Route path="/transactions" element={<TransactionsPage transactions={transactions} onDelete={deleteTransaction} />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+          {error && (
+            <div className="api-alert" role="alert">
+              <AlertCircle size={19} />
+              <span>{error}</span>
+              <button type="button" onClick={() => { clearError(); void refresh(); }}>Повторить</button>
+            </div>
+          )}
+          {isLoading ? (
+            <div className="data-state" role="status">Загружаем операции…</div>
+          ) : error && transactions.length === 0 ? (
+            <div className="data-state">Нет подключения к базе данных. Проверь сервер и повтори загрузку.</div>
+          ) : (
+            <>
+              {transactions.length === 0 && (
+                <div className="welcome-banner">
+                  <div><strong>База операций пуста</strong><span>Добавь первую операцию или загрузи тестовые данные.</span></div>
+                  <button className="button button--secondary" type="button" disabled={isBusy} onClick={() => { void handleResetDemo(); }}>Загрузить демоданные</button>
+                </div>
+              )}
+              <Routes>
+                <Route path="/" element={<DashboardPage transactions={transactions} />} />
+                <Route path="/transactions" element={<TransactionsPage transactions={transactions} onDelete={handleDelete} isBusy={isBusy} />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </>
+          )}
         </main>
       </div>
 
