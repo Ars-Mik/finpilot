@@ -1,20 +1,21 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { X } from 'lucide-react';
 import { todayLocal } from '../lib/finance';
-import { CATEGORIES, type TransactionInput, type TransactionType } from '../types/finance';
+import { CATEGORIES, type Transaction, type TransactionInput, type TransactionType } from '../types/finance';
 
 type TransactionFormProps = {
+  transaction?: Transaction;
   onClose: () => void;
   onSave: (transaction: TransactionInput) => Promise<void>;
 };
 
-export default function TransactionForm({ onClose, onSave }: TransactionFormProps) {
+export default function TransactionForm({ transaction, onClose, onSave }: TransactionFormProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const [type, setType] = useState<TransactionType>('expense');
-  const [title, setTitle] = useState('');
-  const [amount, setAmount] = useState('');
-  const [category, setCategory] = useState<string>(CATEGORIES.expense[0]);
-  const [date, setDate] = useState(todayLocal);
+  const [type, setType] = useState<TransactionType>(transaction?.type ?? 'expense');
+  const [title, setTitle] = useState(transaction?.title ?? '');
+  const [amount, setAmount] = useState(transaction ? (transaction.amountCents / 100).toFixed(2).replace('.', ',') : '');
+  const [category, setCategory] = useState<string>(transaction?.category ?? CATEGORIES.expense[0]);
+  const [date, setDate] = useState(transaction?.date ?? todayLocal());
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -77,7 +78,10 @@ export default function TransactionForm({ onClose, onSave }: TransactionFormProp
       aria-labelledby="transaction-dialog-title"
     >
       <div className="dialog-heading">
-        <div><div className="eyebrow">Новая запись</div><h2 id="transaction-dialog-title">Добавить операцию</h2></div>
+        <div>
+          <div className="eyebrow">{transaction ? 'Изменение записи' : 'Новая запись'}</div>
+          <h2 id="transaction-dialog-title">{transaction ? 'Редактировать операцию' : 'Добавить операцию'}</h2>
+        </div>
         <button className="icon-button" type="button" disabled={isSubmitting} onClick={onClose} aria-label="Закрыть окно"><X size={20} /></button>
       </div>
       <form onSubmit={(event) => { void handleSubmit(event); }} className="transaction-form" aria-busy={isSubmitting}>

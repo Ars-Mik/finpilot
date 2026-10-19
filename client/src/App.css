@@ -106,6 +106,8 @@ select { cursor: pointer; }
 .icon-button { display: inline-grid; flex-shrink: 0; place-items: center; width: 34px; height: 34px; padding: 0; background: #fff; border: 1px solid #edf0f5; border-radius: 9px; color: #8290a4; }
 .icon-button:hover { background: #f6f7fc; color: #4650bd; }
 .transaction-row__delete:hover { color: #d65c62; background: #fff4f4; }
+.transaction-row__edit:hover { color: var(--primary); background: #f0f1ff; }
+.transaction-row__actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: 4px; }
 .empty-state { padding: 43px 12px; text-align: center; color: #929bac; font-size: 13px; line-height: 1.6; }
 .operations-panel { padding-bottom: 13px; }
 .filter-bar { display: flex; gap: 11px; flex-wrap: wrap; }

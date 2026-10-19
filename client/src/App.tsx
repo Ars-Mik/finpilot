@@ -3,6 +3,7 @@ import { AlertCircle, ArrowLeftRight, ChartNoAxesCombined, LayoutDashboard, Plus
 import { BrowserRouter, NavLink, Navigate, Route, Routes, useLocation } from 'react-router';
 import TransactionForm from './components/TransactionForm';
 import { useTransactions } from './hooks/useTransactions';
+import type { Transaction } from './types/finance';
 import DashboardPage from './pages/DashboardPage';
 import TransactionsPage from './pages/TransactionsPage';
 import './App.css';
@@ -10,9 +11,9 @@ import './App.css';
 function AppContent() {
   const {
     transactions, isLoading, isBusy, error, refresh, clearError,
-    addTransaction, deleteTransaction, resetDemo,
+    addTransaction, editTransaction, deleteTransaction, resetDemo,
   } = useTransactions();
-  const [isFormOpen, setFormOpen] = useState(false);
+  const [formTransaction, setFormTransaction] = useState<Transaction | null | undefined>(undefined);
   const location = useLocation();
 
   const links = [
@@ -61,7 +62,7 @@ function AppContent() {
       <div className="main-area">
         <header className="topbar">
           <div className="topbar__location"><span>FinPilot</span><span className="topbar__separator">/</span><strong>{location.pathname === '/transactions' ? 'Операции' : 'Обзор'}</strong></div>
-          <button className="button button--primary" type="button" disabled={isLoading || isBusy} onClick={() => setFormOpen(true)}>
+          <button className="button button--primary" type="button" disabled={isLoading || isBusy} onClick={() => setFormTransaction(null)}>
             <Plus size={19} /> <span>Новая операция</span>
           </button>
         </header>
@@ -87,7 +88,7 @@ function AppContent() {
               )}
               <Routes>
                 <Route path="/" element={<DashboardPage transactions={transactions} />} />
-                <Route path="/transactions" element={<TransactionsPage transactions={transactions} onDelete={handleDelete} isBusy={isBusy} />} />
+                <Route path="/transactions" element={<TransactionsPage transactions={transactions} onDelete={handleDelete} onEdit={setFormTransaction} isBusy={isBusy} />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </>
@@ -95,7 +96,16 @@ function AppContent() {
         </main>
       </div>
 
-      {isFormOpen && <TransactionForm onSave={addTransaction} onClose={() => setFormOpen(false)} />}
+      {formTransaction !== undefined && (
+        <TransactionForm
+          key={formTransaction?.id ?? 'new'}
+          transaction={formTransaction ?? undefined}
+          onSave={formTransaction
+            ? (input) => editTransaction(formTransaction.id, input)
+            : addTransaction}
+          onClose={() => setFormTransaction(undefined)}
+        />
+      )}
     </div>
   );
 }

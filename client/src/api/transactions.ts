@@ -7,7 +7,6 @@ type ApiErrorResponse = { error?: { code?: string; message?: string } };
 type ApiItemResponse = { data: Transaction };
 type ApiPageResponse = { data: Transaction[]; meta: { page: number; limit: number; total: number } };
 
-
 export class ApiError extends Error {
   readonly status?: number;
 
@@ -17,7 +16,6 @@ export class ApiError extends Error {
     this.status = status;
   }
 }
-
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   let response: Response;
@@ -72,6 +70,14 @@ export async function getTransactions(signal?: AbortSignal): Promise<Transaction
 export async function createTransaction(input: TransactionInput): Promise<Transaction> {
   const result = await request<ApiItemResponse>('/api/transactions', {
     method: 'POST',
+    body: JSON.stringify(input),
+  });
+  return result.data;
+}
+
+export async function updateTransaction(id: string, input: TransactionInput): Promise<Transaction> {
+  const result = await request<ApiItemResponse>(`/api/transactions/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
     body: JSON.stringify(input),
   });
   return result.data;
