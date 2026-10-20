@@ -38,6 +38,11 @@ export const transactionQuerySchema = z.strictObject({
   search: z.string().trim().max(100).optional(),
 });
 
+export const overviewQuerySchema = z.strictObject({
+  month: z.string().regex(/^(?!0000)\d{4}-(0[1-9]|1[0-2])$/),
+  currentMonth: z.string().regex(/^(?!0000)\d{4}-(0[1-9]|1[0-2])$/),
+});
+
 export const transactionIdSchema = z.uuid();
 
 export type TransactionInput = z.infer<typeof transactionInputSchema>;

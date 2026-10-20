@@ -3,7 +3,7 @@ import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
 import type { Transaction, TransactionInput, TransactionQuery } from '../src/modules/transactions/transaction.schema.js';
-import type { TransactionPage, TransactionRepository } from '../src/modules/transactions/transaction.repository.js';
+import type { TransactionOverview, TransactionPage, TransactionRepository } from '../src/modules/transactions/transaction.repository.js';
 
 class FakeRepository implements TransactionRepository {
   items: Transaction[] = [];
@@ -14,7 +14,35 @@ class FakeRepository implements TransactionRepository {
       && (!query.month || item.date.startsWith(query.month))
       && (!query.search || `${item.title} ${item.category}`.toLowerCase().includes(query.search.toLowerCase())),
     );
-    return { items: filtered.slice((query.page - 1) * query.limit, query.page * query.limit), total: filtered.length };
+    return {
+      items: filtered.slice((query.page - 1) * query.limit, query.page * query.limit),
+      total: filtered.length,
+      totals: {
+        incomeCents: filtered.filter((item) => item.type === 'income').reduce((sum, item) => sum + item.amountCents, 0),
+        expenseCents: filtered.filter((item) => item.type === 'expense').reduce((sum, item) => sum + item.amountCents, 0),
+      },
+    };
+  }
+  async overview(selectedMonth: string, chartMonths: readonly string[]): Promise<TransactionOverview> {
+    const byMonth = (month: string) => this.items.filter((item) => item.date.startsWith(month));
+    const totals = (items: readonly Transaction[]) => ({
+      incomeCents: items.filter((item) => item.type === 'income').reduce((sum, item) => sum + item.amountCents, 0),
+      expenseCents: items.filter((item) => item.type === 'expense').reduce((sum, item) => sum + item.amountCents, 0),
+    });
+    const all = totals(this.items);
+    const categories = new Map<string, number>();
+    for (const item of byMonth(selectedMonth).filter((item) => item.type === 'expense')) {
+      categories.set(item.category, (categories.get(item.category) ?? 0) + item.amountCents);
+    }
+    return {
+      total: this.items.length,
+      balanceCents: all.incomeCents - all.expenseCents,
+      selected: totals(byMonth(selectedMonth)),
+      months: chartMonths.map((month) => ({ month, ...totals(byMonth(month)) })),
+      categories: [...categories].map(([category, amountCents]) => ({ category, amountCents }))
+        .sort((a, b) => b.amountCents - a.amountCents || a.category.localeCompare(b.category)).slice(0, 4),
+      recent: [...this.items].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5),
+    };
   }
   async findById(id: string) { return this.items.find((item) => item.id === id) ?? null; }
   async create(input: TransactionInput) {
@@ -85,8 +113,39 @@ describe('transactions API', () => {
     await repository.create({ ...validTransaction, title: 'Зарплата', type: 'income', category: 'Зарплата' });
     const result = await request(app).get('/api/transactions?type=expense&limit=1&page=2');
     expect(result.status).toBe(200);
-    expect(result.body.meta).toEqual({ total: 2, page: 2, limit: 1 });
+    expect(result.body.meta).toEqual({ total: 2, page: 2, limit: 1, totals: { incomeCents: 0, expenseCents: 49_100 } });
     expect(result.body.data).toHaveLength(1);
+  });
+
+  it('returns filtered totals from every matching record, not only the current page', async () => {
+    const { app, repository } = setup();
+    await repository.create({ ...validTransaction, amountCents: 100_00 });
+    await repository.create({ ...validTransaction, amountCents: 300_00 });
+    await repository.create({ ...validTransaction, amountCents: 800_00, type: 'income', category: 'Зарплата' });
+    const result = await request(app).get('/api/transactions?type=expense&page=1&limit=1');
+    expect(result.status).toBe(200);
+    expect(result.body.data).toHaveLength(1);
+    expect(result.body.meta).toEqual({ page: 1, limit: 1, total: 2, totals: { incomeCents: 0, expenseCents: 400_00 } });
+  });
+
+  it('returns overview values without loading all transactions', async () => {
+    const { app, repository } = setup();
+    await repository.create({ ...validTransaction, amountCents: 100_00 });
+    await repository.create({ ...validTransaction, date: '2026-09-10', amountCents: 500_00, type: 'income', category: 'Зарплата' });
+    const result = await request(app).get('/api/transactions/overview?month=2026-10&currentMonth=2026-10');
+    expect(result.status).toBe(200);
+    expect(result.body.data.total).toBe(2);
+    expect(result.body.data.balanceCents).toBe(400_00);
+    expect(result.body.data.selected).toEqual({ incomeCents: 0, expenseCents: 100_00 });
+    expect(result.body.data.months).toHaveLength(6);
+    expect(result.body.data.recent).toHaveLength(2);
+    expect(result.body.data.categories).toEqual([{ category: 'Продукты', amountCents: 100_00 }]);
+  });
+
+  it('validates overview query parameters', async () => {
+    const { app } = setup();
+    expect((await request(app).get('/api/transactions/overview?month=2026-13&currentMonth=2026-10')).status).toBe(422);
+    expect((await request(app).get('/api/transactions/overview?month=2026-10&currentMonth=2026-10&owner=123')).status).toBe(422);
   });
 
   it('partially updates a transaction and validates the merged result', async () => {

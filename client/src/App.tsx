@@ -1,40 +1,62 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { AlertCircle, ArrowLeftRight, ChartNoAxesCombined, LayoutDashboard, Plus, RotateCcw, ShieldCheck } from 'lucide-react';
 import { BrowserRouter, NavLink, Navigate, Route, Routes, useLocation } from 'react-router';
+import { createTransaction, removeTransaction, resetDemoTransactions, updateTransaction } from './api/transactions';
 import TransactionForm from './components/TransactionForm';
-import { useTransactions } from './hooks/useTransactions';
-import type { Transaction } from './types/finance';
+import { createDemoTransactions } from './data/demoTransactions';
 import DashboardPage from './pages/DashboardPage';
 import TransactionsPage from './pages/TransactionsPage';
+import type { Transaction, TransactionInput } from './types/finance';
 import './App.css';
 
 function AppContent() {
-  const {
-    transactions, isLoading, isBusy, error, refresh, clearError,
-    addTransaction, editTransaction, deleteTransaction, resetDemo,
-  } = useTransactions();
+  const [revision, setRevision] = useState(0);
+  const [isBusy, setIsBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [formTransaction, setFormTransaction] = useState<Transaction | null | undefined>(undefined);
+  const busyRef = useRef(false);
   const location = useLocation();
+
+  async function mutate(operation: () => Promise<unknown>): Promise<void> {
+    if (busyRef.current) throw new Error('Дождись завершения предыдущей операции.');
+    busyRef.current = true;
+    setIsBusy(true);
+    setError(null);
+    try {
+      await operation();
+      setRevision((value) => value + 1);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Не удалось сохранить изменения.');
+      throw cause;
+    } finally {
+      busyRef.current = false;
+      setIsBusy(false);
+    }
+  }
+
+  function handleDelete(id: string) {
+    void mutate(() => removeTransaction(id)).catch(() => {
+      // The error is displayed above the current page.
+    });
+  }
+
+  async function handleResetDemo() {
+    if (!window.confirm('Удалить все операции из локальной базы и загрузить демонстрационные данные?')) return;
+    const demo = createDemoTransactions().map(({ title, type, category, date, amountCents }) => ({
+      title, type, category, date, amountCents,
+    }));
+    try {
+      await mutate(() => resetDemoTransactions(demo));
+    } catch {
+      // The database might contain partially replaced data; refresh both pages.
+      setRevision((value) => value + 1);
+    }
+  }
 
   const links = [
     { to: '/', label: 'Обзор', icon: LayoutDashboard, end: true },
     { to: '/transactions', label: 'Операции', icon: ArrowLeftRight, end: false },
   ];
-
-  async function handleResetDemo() {
-    if (!window.confirm('Удалить все операции из локальной базы и загрузить демонстрационные данные?')) return;
-    try {
-      await resetDemo();
-    } catch {
-      // Error is displayed by the hook; the final data set is reloaded from PostgreSQL.
-    }
-  }
-
-  function handleDelete(id: string) {
-    void deleteTransaction(id).catch(() => {
-      // Error is displayed by the hook; retain the operation on failed deletion.
-    });
-  }
 
   return (
     <div className="app-shell">
@@ -53,16 +75,18 @@ function AppContent() {
         </nav>
         <div className="sidebar__bottom">
           <div className="privacy-note"><ShieldCheck size={21} /><div><strong>Локальная разработка</strong><span>Операции хранятся в PostgreSQL. Авторизация пока не подключена.</span></div></div>
-          <button className="sidebar__reset" type="button" disabled={isLoading || isBusy} onClick={() => { void handleResetDemo(); }}>
-            <RotateCcw size={16} /> {isBusy ? 'Подожди…' : 'Загрузить демоданные'}
-          </button>
+          {import.meta.env.DEV && (
+            <button className="sidebar__reset" type="button" disabled={isBusy} onClick={() => { void handleResetDemo(); }}>
+              <RotateCcw size={16} /> {isBusy ? 'Подожди…' : 'Загрузить демоданные'}
+            </button>
+          )}
         </div>
       </aside>
 
       <div className="main-area">
         <header className="topbar">
           <div className="topbar__location"><span>FinPilot</span><span className="topbar__separator">/</span><strong>{location.pathname === '/transactions' ? 'Операции' : 'Обзор'}</strong></div>
-          <button className="button button--primary" type="button" disabled={isLoading || isBusy} onClick={() => setFormTransaction(null)}>
+          <button className="button button--primary" type="button" disabled={isBusy} onClick={() => setFormTransaction(null)}>
             <Plus size={19} /> <span>Новая операция</span>
           </button>
         </header>
@@ -71,28 +95,14 @@ function AppContent() {
             <div className="api-alert" role="alert">
               <AlertCircle size={19} />
               <span>{error}</span>
-              <button type="button" onClick={() => { clearError(); void refresh(); }}>Повторить</button>
+              <button type="button" onClick={() => setError(null)}>Закрыть</button>
             </div>
           )}
-          {isLoading ? (
-            <div className="data-state" role="status">Загружаем операции…</div>
-          ) : error && transactions.length === 0 ? (
-            <div className="data-state">Нет подключения к базе данных. Проверь сервер и повтори загрузку.</div>
-          ) : (
-            <>
-              {transactions.length === 0 && (
-                <div className="welcome-banner">
-                  <div><strong>База операций пуста</strong><span>Добавь первую операцию или загрузи тестовые данные.</span></div>
-                  <button className="button button--secondary" type="button" disabled={isBusy} onClick={() => { void handleResetDemo(); }}>Загрузить демоданные</button>
-                </div>
-              )}
-              <Routes>
-                <Route path="/" element={<DashboardPage transactions={transactions} />} />
-                <Route path="/transactions" element={<TransactionsPage transactions={transactions} onDelete={handleDelete} onEdit={setFormTransaction} isBusy={isBusy} />} />
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
-            </>
-          )}
+          <Routes>
+            <Route path="/" element={<DashboardPage revision={revision} />} />
+            <Route path="/transactions" element={<TransactionsPage revision={revision} onDelete={handleDelete} onEdit={setFormTransaction} isBusy={isBusy} />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
         </main>
       </div>
 
@@ -101,8 +111,8 @@ function AppContent() {
           key={formTransaction?.id ?? 'new'}
           transaction={formTransaction ?? undefined}
           onSave={formTransaction
-            ? (input) => editTransaction(formTransaction.id, input)
-            : addTransaction}
+            ? (input) => mutate(() => updateTransaction(formTransaction.id, input))
+            : (input: TransactionInput) => mutate(() => createTransaction(input))}
           onClose={() => setFormTransaction(undefined)}
         />
       )}

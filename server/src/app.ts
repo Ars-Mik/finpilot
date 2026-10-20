@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import { z, ZodError } from 'zod';
 import {
   transactionIdSchema,
+  overviewQuerySchema,
   transactionInputSchema,
   transactionPatchSchema,
   transactionQuerySchema,
@@ -33,7 +34,20 @@ export function createApp({ repository, clientOrigin }: AppDependencies) {
     const parsed = transactionQuerySchema.safeParse(request.query);
     if (!parsed.success) { response.status(422).json(invalidInput(parsed.error)); return; }
     const page = await repository.list(parsed.data);
-    response.json({ data: page.items, meta: { page: parsed.data.page, limit: parsed.data.limit, total: page.total } });
+    response.json({ data: page.items, meta: { page: parsed.data.page, limit: parsed.data.limit, total: page.total, totals: page.totals } });
+  });
+
+  app.get('/api/transactions/overview', async (request: Request, response: Response) => {
+    const parsed = overviewQuerySchema.safeParse(request.query);
+    if (!parsed.success) { response.status(422).json(invalidInput(parsed.error)); return; }
+    const { month, currentMonth } = parsed.data;
+    const year = Number(currentMonth.slice(0, 4));
+    const monthNumber = Number(currentMonth.slice(5, 7));
+    const chartMonths = Array.from({ length: 6 }, (_, index) => {
+      const date = new Date(Date.UTC(year, monthNumber - 6 + index, 1));
+      return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+    });
+    response.json({ data: await repository.overview(month, chartMonths) });
   });
 
   app.get('/api/transactions/:id', async (request: Request, response: Response) => {
