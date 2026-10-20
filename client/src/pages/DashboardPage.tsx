@@ -43,9 +43,9 @@ function DashboardContent({ selectedMonth, setSelectedMonth, chartMonths }: Dash
       {overview.total === 0 && <div className="welcome-banner"><strong>Операций пока нет. Добавь первую запись.</strong></div>}
       <div className="page-heading">
         <div>
-          <div className="eyebrow">Твои финансы под контролем</div>
+          <div className="eyebrow">Сводка</div>
           <h1>Обзор финансов</h1>
-          <p>Все важные показатели в одном месте.</p>
+          <p>Остатки, операции и движение средств.</p>
         </div>
         <label className="period-control">
           <span>Период</span>
