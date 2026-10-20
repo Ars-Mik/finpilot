@@ -14,8 +14,11 @@ import { accountInputSchema, transferInputSchema, transferQuerySchema } from './
 import { AccountMissingError, DuplicateAccountNameError, type AccountRepository } from './modules/accounts/account.repository.js';
 import { budgetIdSchema, budgetInputSchema, budgetPatchSchema, budgetQuerySchema } from './modules/budgets/budget.schema.js';
 import { DuplicateBudgetError, type BudgetRepository } from './modules/budgets/budget.repository.js';
+import { recurringIdSchema, recurringInputSchema, recurringQuerySchema, recurringToggleSchema } from './modules/recurring/recurring.schema.js';
+import { utcToday } from './modules/recurring/schedule.js';
+import type { RecurringRepository } from './modules/recurring/recurring.repository.js';
 
-type AppDependencies = { repository: TransactionRepository; accounts?: AccountRepository; budgets?: BudgetRepository; clientOrigin: string };
+type AppDependencies = { repository: TransactionRepository; accounts?: AccountRepository; budgets?: BudgetRepository; recurring?: RecurringRepository; now?: () => Date; clientOrigin: string };
 
 const invalidInput = (error: ZodError) => ({
   error: { code: 'VALIDATION_ERROR', message: 'Invalid request data', issues: z.treeifyError(error) },
@@ -23,7 +26,7 @@ const invalidInput = (error: ZodError) => ({
 
 const notFound = { error: { code: 'NOT_FOUND', message: 'Transaction not found' } };
 
-export function createApp({ repository, accounts, budgets, clientOrigin }: AppDependencies) {
+export function createApp({ repository, accounts, budgets, recurring, now = () => new Date(), clientOrigin }: AppDependencies) {
   const app = express();
   app.disable('x-powered-by');
   app.use(helmet());
@@ -91,6 +94,41 @@ export function createApp({ repository, accounts, budgets, clientOrigin }: AppDe
       if (!id.success) { response.status(422).json(invalidInput(id.error)); return; }
       if (!await budgets.remove(id.data)) {
         response.status(404).json({ error: { code: 'NOT_FOUND', message: 'Budget not found' } });
+        return;
+      }
+      response.status(204).send();
+    });
+  }
+
+  if (recurring) {
+    app.get('/api/recurring', async (request: Request, response: Response) => {
+      const parsed = recurringQuerySchema.safeParse(request.query);
+      if (!parsed.success) { response.status(422).json(invalidInput(parsed.error)); return; }
+      response.json({ data: await recurring.list(parsed.data.on) });
+    });
+
+    app.post('/api/recurring', async (request: Request, response: Response) => {
+      const parsed = recurringInputSchema.safeParse(request.body);
+      if (!parsed.success) { response.status(422).json(invalidInput(parsed.error)); return; }
+      const record = await recurring.create(parsed.data);
+      response.status(201).json({ data: record });
+    });
+
+    app.post('/api/recurring/apply', async (request: Request, response: Response) => {
+      if (request.body && (typeof request.body !== 'object' || Object.keys(request.body).length > 0)) {
+        response.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'Request body must be empty' } });
+        return;
+      }
+      response.json({ data: await recurring.applyDue(utcToday(now())) });
+    });
+
+    app.patch('/api/recurring/:id', async (request: Request, response: Response) => {
+      const id = recurringIdSchema.safeParse(request.params.id);
+      const toggle = recurringToggleSchema.safeParse(request.body);
+      if (!id.success) { response.status(422).json(invalidInput(id.error)); return; }
+      if (!toggle.success) { response.status(422).json(invalidInput(toggle.error)); return; }
+      if (!await recurring.setEnabled(id.data, toggle.data.enabled)) {
+        response.status(404).json({ error: { code: 'NOT_FOUND', message: 'Recurring rule not found' } });
         return;
       }
       response.status(204).send();
