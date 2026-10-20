@@ -8,6 +8,7 @@ type AnalyticsContentProps = { through: string; months: AnalyticsPeriodMonths; o
 
 function Delta({ current, previous }: { current: number; previous: number }) {
   const difference = current - previous;
+  if (previous === 0 && current !== 0) return <span className="analytics-delta">Нет данных за предыдущий период</span>;
   if (difference === 0) return <span className="analytics-delta">Без изменений к предыдущему периоду</span>;
   return (
     <span className="analytics-delta">

@@ -11,7 +11,7 @@ export default function BalanceCard({ balanceCents, monthBalanceCents, periodLab
   return (
     <section className="balance-card" aria-label="Сводка баланса">
       <div className="balance-card__content">
-        <div className="balance-card__label"><Wallet size={18} /> Баланс операций</div>
+        <div className="balance-card__label"><Wallet size={18} /> Общий остаток на счетах</div>
         <div className="balance-card__amount">{formatMoney(balanceCents)}</div>
         <div className="balance-card__foot">
           <span className="balance-card__delta">{monthBalanceCents >= 0 ? <ArrowUpRight size={16} /> : <ArrowDownRight size={16} />} {formatMoney(monthBalanceCents)}</span>

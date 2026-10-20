@@ -130,7 +130,7 @@ function BudgetsContent({ month, onMonthChange }: { month: string; onMonthChange
   const existingCategories = new Set(data?.budgets.map((budget) => budget.category));
   const unusedCategories = EXPENSE_CATEGORIES.filter((item) => !existingCategories.has(item));
   const chosenCategory = unusedCategories.includes(category) ? category : unusedCategories[0];
-  const coveredRemaining = data ? data.totalLimitCents - data.coveredSpentCents : 0;
+  const totalExceededCents = data?.budgets.reduce((sum, budget) => sum + Math.max(0, -budget.remainingCents), 0) ?? 0;
 
   return (
     <div className="page-stack">
@@ -143,8 +143,8 @@ function BudgetsContent({ month, onMonthChange }: { month: string; onMonthChange
         <>
           <section className="budget-summary" aria-label="Итоги бюджета">
             <div><span>Лимиты на {monthName(month)}</span><strong>{formatMoney(data.totalLimitCents)}</strong></div>
-            <div><span>Расходы в пределах категорий с лимитами</span><strong>{formatMoney(data.coveredSpentCents)}</strong></div>
-            <div><span>{coveredRemaining >= 0 ? 'Осталось по лимитам' : 'Превышение лимитов'}</span><strong className={coveredRemaining < 0 ? 'budget-summary__negative' : ''}>{formatMoney(Math.abs(coveredRemaining))}</strong></div>
+            <div><span>Расходы в категориях с лимитами</span><strong>{formatMoney(data.coveredSpentCents)}</strong></div>
+            <div><span>Превышение по категориям</span><strong className={totalExceededCents > 0 ? 'budget-summary__negative' : ''}>{formatMoney(totalExceededCents)}</strong></div>
           </section>
           <div className="budget-insights">
             <div><span>Все расходы месяца</span><strong>{formatMoney(data.totalSpentCents)}</strong></div>
