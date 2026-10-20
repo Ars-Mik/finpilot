@@ -20,8 +20,10 @@ import type { RecurringRepository } from './modules/recurring/recurring.reposito
 import { forecastRequestSchema } from './modules/forecast/forecast.schema.js';
 import { buildForecast, forecastEndDate, forecastScenarioIsValid } from './modules/forecast/forecast.service.js';
 import type { ForecastRepository } from './modules/forecast/forecast.repository.js';
+import { analyticsQuerySchema } from './modules/analytics/analytics.schema.js';
+import type { AnalyticsRepository } from './modules/analytics/analytics.repository.js';
 
-type AppDependencies = { repository: TransactionRepository; accounts?: AccountRepository; budgets?: BudgetRepository; recurring?: RecurringRepository; forecast?: ForecastRepository; now?: () => Date; clientOrigin: string };
+type AppDependencies = { repository: TransactionRepository; accounts?: AccountRepository; budgets?: BudgetRepository; recurring?: RecurringRepository; forecast?: ForecastRepository; analytics?: AnalyticsRepository; now?: () => Date; clientOrigin: string };
 
 const invalidInput = (error: ZodError) => ({
   error: { code: 'VALIDATION_ERROR', message: 'Invalid request data', issues: z.treeifyError(error) },
@@ -29,7 +31,7 @@ const invalidInput = (error: ZodError) => ({
 
 const notFound = { error: { code: 'NOT_FOUND', message: 'Transaction not found' } };
 
-export function createApp({ repository, accounts, budgets, recurring, forecast, now = () => new Date(), clientOrigin }: AppDependencies) {
+export function createApp({ repository, accounts, budgets, recurring, forecast, analytics, now = () => new Date(), clientOrigin }: AppDependencies) {
   const app = express();
   app.disable('x-powered-by');
   app.use(helmet());
@@ -150,6 +152,14 @@ export function createApp({ repository, accounts, budgets, recurring, forecast, 
       }
       const snapshot = await forecast.readSnapshot(asOf, forecastEndDate(asOf, parsed.data.months));
       response.json({ data: buildForecast(snapshot, parsed.data, asOf) });
+    });
+  }
+
+  if (analytics) {
+    app.get('/api/analytics', async (request: Request, response: Response) => {
+      const parsed = analyticsQuerySchema.safeParse(request.query);
+      if (!parsed.success) { response.status(422).json(invalidInput(parsed.error)); return; }
+      response.json({ data: await analytics.report(parsed.data) });
     });
   }
 
