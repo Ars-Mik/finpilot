@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { AlertCircle, ArrowLeftRight, ChartNoAxesCombined, LayoutDashboard, Landmark, Target, CalendarClock, TrendingUp, Plus, RotateCcw, ShieldCheck } from 'lucide-react';
+import { AlertCircle, ArrowLeftRight, ChartNoAxesCombined, LayoutDashboard, Landmark, Target, CalendarClock, TrendingUp, BarChart3, Plus, RotateCcw, ShieldCheck } from 'lucide-react';
 import { BrowserRouter, NavLink, Navigate, Route, Routes, useLocation } from 'react-router';
 import { createTransaction, removeTransaction, resetDemoTransactions, updateTransaction } from './api/transactions';
 import TransactionForm from './components/TransactionForm';
@@ -9,6 +9,7 @@ import AccountsPage from './pages/AccountsPage';
 import BudgetsPage from './pages/BudgetsPage';
 import RecurringPage from './pages/RecurringPage';
 import ForecastPage from './pages/ForecastPage';
+import AnalyticsPage from './pages/AnalyticsPage';
 import TransactionsPage from './pages/TransactionsPage';
 import type { Transaction, TransactionInput } from './types/finance';
 import './App.css';
@@ -64,6 +65,7 @@ function AppContent() {
     { to: '/budgets', label: 'Бюджеты', icon: Target, end: false },
     { to: '/recurring', label: 'Регулярные', icon: CalendarClock, end: false },
     { to: '/forecast', label: 'Прогноз', icon: TrendingUp, end: false },
+    { to: '/analytics', label: 'Аналитика', icon: BarChart3, end: false },
   ];
 
   return (
@@ -93,7 +95,7 @@ function AppContent() {
 
       <div className="main-area">
         <header className="topbar">
-          <div className="topbar__location"><span>FinPilot</span><span className="topbar__separator">/</span><strong>{location.pathname === '/transactions' ? 'Операции' : location.pathname === '/accounts' ? 'Счета' : location.pathname === '/budgets' ? 'Бюджеты' : location.pathname === '/recurring' ? 'Регулярные' : location.pathname === '/forecast' ? 'Прогноз' : 'Обзор'}</strong></div>
+          <div className="topbar__location"><span>FinPilot</span><span className="topbar__separator">/</span><strong>{location.pathname === '/transactions' ? 'Операции' : location.pathname === '/accounts' ? 'Счета' : location.pathname === '/budgets' ? 'Бюджеты' : location.pathname === '/recurring' ? 'Регулярные' : location.pathname === '/forecast' ? 'Прогноз' : location.pathname === '/analytics' ? 'Аналитика' : 'Обзор'}</strong></div>
           <button className="button button--primary" type="button" disabled={isBusy} onClick={() => setFormTransaction(null)}>
             <Plus size={19} /> <span>Новая операция</span>
           </button>
@@ -113,6 +115,7 @@ function AppContent() {
             <Route path="/budgets" element={<BudgetsPage revision={revision} />} />
             <Route path="/recurring" element={<RecurringPage />} />
             <Route path="/forecast" element={<ForecastPage key={revision} />} />
+            <Route path="/analytics" element={<AnalyticsPage revision={revision} />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>

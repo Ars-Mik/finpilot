@@ -6,10 +6,11 @@ import { PgAccountRepository } from './modules/accounts/pg-account.repository.js
 import { PgBudgetRepository } from './modules/budgets/pg-budget.repository.js';
 import { PgRecurringRepository } from './modules/recurring/pg-recurring.repository.js';
 import { PgForecastRepository } from './modules/forecast/pg-forecast.repository.js';
+import { PgAnalyticsRepository } from './modules/analytics/pg-analytics.repository.js';
 
 const config = loadConfig();
 const pool = createPool(config.DATABASE_URL);
-const app = createApp({ repository: new PgTransactionRepository(pool), accounts: new PgAccountRepository(pool), budgets: new PgBudgetRepository(pool), recurring: new PgRecurringRepository(pool), forecast: new PgForecastRepository(pool), clientOrigin: config.CLIENT_ORIGIN });
+const app = createApp({ repository: new PgTransactionRepository(pool), accounts: new PgAccountRepository(pool), budgets: new PgBudgetRepository(pool), recurring: new PgRecurringRepository(pool), forecast: new PgForecastRepository(pool), analytics: new PgAnalyticsRepository(pool), clientOrigin: config.CLIENT_ORIGIN });
 
 const server = app.listen(config.PORT, config.HOST, () => {
   console.log(`FinPilot API: http://${config.HOST}:${config.PORT}`);
