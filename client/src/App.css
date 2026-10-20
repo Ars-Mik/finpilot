@@ -296,3 +296,44 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 @media (max-width: 1060px) { .recurring-layout { grid-template-columns: 1fr; } }
 @media (max-width: 700px) { .recurring-summary { flex-wrap: wrap; } .recurring-summary > .button { width: 100%; margin: 12px; } }
 @media (max-width: 460px) { .recurring-card__top { flex-direction: column; } .recurring-summary > div { padding: 15px; } }
+
+/* Cash flow forecast */
+.forecast-page { display: grid; gap: 23px; }
+.forecast-heading { align-items: center; }
+.forecast-highlights { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 17px; }
+.forecast-highlight { display: grid; gap: 11px; min-width: 0; padding: 24px; border: 1px solid var(--line); border-radius: 17px; background: #fff; box-shadow: var(--shadow); }
+.forecast-highlight > span { display: flex; align-items: center; gap: 9px; color: #8490a5; font-size: 12px; }
+.forecast-highlight > span svg { color: var(--primary); }
+.forecast-highlight strong { color: #26324a; font-size: clamp(21px, 2.4vw, 29px); letter-spacing: -.7px; overflow-wrap: anywhere; }
+.forecast-highlight small { color: #9aa3b3; font-size: 11px; }
+.forecast-layout { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(285px, 1fr); align-items: start; gap: 19px; }
+.forecast-plot, .forecast-scenario { min-width: 0; }
+.forecast-chart { margin-top: 26px; }
+.forecast-chart svg { width: 100%; height: auto; display: block; }
+.forecast-chart__legend { display: flex; align-items: center; flex-wrap: wrap; gap: 20px; margin-top: 9px; color: #8290a4; font-size: 11px; }
+.forecast-chart__legend span { display: inline-flex; align-items: center; gap: 9px; }
+.forecast-chart__legend i { width: 18px; height: 3px; border-radius: 4px; }
+.forecast-legend--base { background: #5b62d9; }
+.forecast-legend--scenario { background: #e58a66; }
+.forecast-risk { display: flex; align-items: flex-start; gap: 12px; margin-top: 27px; padding: 16px; border: 1px solid #cbece0; border-radius: 12px; background: #f0fbf6; color: #078261; }
+.forecast-risk--negative { border-color: #f4d1d8; background: #fff5f6; color: #c84961; }
+.forecast-risk svg { flex-shrink: 0; }
+.forecast-risk > div { display: grid; gap: 6px; }
+.forecast-risk strong { font-size: 13px; }
+.forecast-risk span { font-size: 11px; }
+.forecast-disclaimer { margin-top: 15px; color: #8793a7; font-size: 11px; line-height: 1.6; }
+.forecast-form { display: grid; gap: 16px; margin-top: 24px; }
+.forecast-form > .button { justify-self: stretch; }
+.forecast-impact { display: grid; gap: 10px; margin-top: 25px; padding: 19px; border-radius: 14px; background: #fff5ef; color: #965938; }
+.forecast-impact > span, .forecast-impact small { font-size: 11px; }
+.forecast-impact strong { font-size: 24px; }
+.forecast-table-wrapper { overflow-x: auto; margin-top: 19px; }
+.forecast-table { border-collapse: collapse; width: 100%; text-align: right; white-space: nowrap; font-size: 12px; }
+.forecast-table th:first-child, .forecast-table td:first-child { text-align: left; }
+.forecast-table thead th { padding: 13px 15px; background: #f7f8fc; font-weight: 700; color: #758099; }
+.forecast-table tbody th, .forecast-table tbody td { padding: 15px; color: #38445d; border-bottom: 1px solid #f0f1f6; }
+.forecast-table tbody th { font-weight: 700; }
+.forecast-value--positive { color: #0f9972 !important; }
+@media (max-width: 1130px) { .forecast-layout { grid-template-columns: 1fr; } }
+@media (max-width: 780px) { .forecast-highlights { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .forecast-heading { flex-direction: column; align-items: stretch; } .forecast-highlight { padding: 19px; } .forecast-plot, .forecast-scenario, .forecast-table-panel { padding: 20px 15px; } }
