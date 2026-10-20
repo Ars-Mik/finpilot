@@ -46,14 +46,14 @@ class FakeRepository implements TransactionRepository {
   }
   async findById(id: string) { return this.items.find((item) => item.id === id) ?? null; }
   async create(input: TransactionInput) {
-    const item = { id: randomUUID(), ...input };
+    const item = { id: randomUUID(), ...input, accountId: input.accountId ?? '00000000-0000-4000-8000-000000000001' };
     this.items.push(item);
     return item;
   }
   async update(id: string, input: TransactionInput) {
     const index = this.items.findIndex((item) => item.id === id);
     if (index === -1) return null;
-    const updated = { id, ...input };
+    const updated = { id, ...input, accountId: input.accountId ?? this.items[index]?.accountId ?? '00000000-0000-4000-8000-000000000001' };
     this.items[index] = updated;
     return updated;
   }
@@ -104,6 +104,19 @@ describe('transactions API', () => {
       expect(response.status).toBe(422);
       expect(response.body.error.code).toBe('VALIDATION_ERROR');
     }
+  });
+
+  it('retains the selected account on creation and partial updates', async () => {
+    const { app } = setup();
+    const accountId = randomUUID();
+    const created = await request(app).post('/api/transactions').send({ ...validTransaction, accountId });
+    expect(created.status).toBe(201);
+    expect(created.body.data.accountId).toBe(accountId);
+    const updated = await request(app).patch(`/api/transactions/${created.body.data.id}`).send({ title: 'Новые продукты' });
+    expect(updated.status).toBe(200);
+    expect(updated.body.data.accountId).toBe(accountId);
+    const invalid = await request(app).post('/api/transactions').send({ ...validTransaction, accountId: 'bad-id' });
+    expect(invalid.status).toBe(422);
   });
 
   it('filters and paginates transactions', async () => {

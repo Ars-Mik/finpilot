@@ -17,6 +17,7 @@ const transactionFields = z.strictObject({
   type: z.enum(['income', 'expense']),
   category: z.string().trim().min(1).max(60),
   date: dateSchema,
+  accountId: z.uuid().optional(),
 });
 
 export const transactionInputSchema = transactionFields.superRefine((value, context) => {
@@ -49,4 +50,4 @@ export type TransactionInput = z.infer<typeof transactionInputSchema>;
 export type TransactionPatch = z.infer<typeof transactionPatchSchema>;
 export type TransactionQuery = z.infer<typeof transactionQuerySchema>;
 
-export type Transaction = TransactionInput & { id: string };
+export type Transaction = Omit<TransactionInput, 'accountId'> & { id: string; accountId: string };
