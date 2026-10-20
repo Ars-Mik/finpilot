@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { X } from 'lucide-react';
 import { todayLocal } from '../lib/finance';
+import { getAccounts, type Account } from '../api/accounts';
 import { CATEGORIES, type Transaction, type TransactionInput, type TransactionType } from '../types/finance';
 
 type TransactionFormProps = {
@@ -18,6 +19,9 @@ export default function TransactionForm({ transaction, onClose, onSave }: Transa
   const [date, setDate] = useState(transaction?.date ?? todayLocal());
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [accountsLoading, setAccountsLoading] = useState(true);
+  const [accountId, setAccountId] = useState(transaction?.accountId ?? '');
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -25,6 +29,17 @@ export default function TransactionForm({ transaction, onClose, onSave }: Transa
     return () => {
       if (dialog?.open) dialog.close();
     };
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void getAccounts(controller.signal)
+      .then((result) => { if (!controller.signal.aborted) setAccounts(result); })
+      .catch((cause: unknown) => {
+        if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Не удалось получить счета.');
+      })
+      .finally(() => { if (!controller.signal.aborted) setAccountsLoading(false); });
+    return () => controller.abort();
   }, []);
 
   function changeType(nextType: TransactionType) {
@@ -58,10 +73,16 @@ export default function TransactionForm({ transaction, onClose, onSave }: Transa
       return;
     }
 
+    const selectedAccountId = accountId || accounts[0]?.id;
+    if (!selectedAccountId) {
+      setError('Не удалось выбрать счёт. Проверь подключение к API.');
+      return;
+    }
+
     setIsSubmitting(true);
     setError('');
     try {
-      await onSave({ type, title: trimmedTitle, amountCents, category, date });
+      await onSave({ type, title: trimmedTitle, amountCents, category, date, accountId: selectedAccountId });
       onClose();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Не удалось сохранить операцию.');
@@ -85,11 +106,16 @@ export default function TransactionForm({ transaction, onClose, onSave }: Transa
         <button className="icon-button" type="button" disabled={isSubmitting} onClick={onClose} aria-label="Закрыть окно"><X size={20} /></button>
       </div>
       <form onSubmit={(event) => { void handleSubmit(event); }} className="transaction-form" aria-busy={isSubmitting}>
-        <fieldset className="form-fields" disabled={isSubmitting}>
+        <fieldset className="form-fields" disabled={isSubmitting || accountsLoading}>
           <div className="type-switch" role="group" aria-label="Тип операции">
             <button type="button" aria-pressed={type === 'expense'} className={type === 'expense' ? 'type-switch__active' : ''} onClick={() => changeType('expense')}>Расход</button>
             <button type="button" aria-pressed={type === 'income'} className={type === 'income' ? 'type-switch__active' : ''} onClick={() => changeType('income')}>Доход</button>
           </div>
+          <label className="field"><span>Счёт</span>
+            <select required value={accountId || accounts[0]?.id || ''} onChange={(event) => setAccountId(event.target.value)}>
+              {accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+            </select>
+          </label>
           <label className="field"><span>Название</span>
             <input autoFocus required maxLength={80} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Например, продукты" />
           </label>
@@ -110,7 +136,7 @@ export default function TransactionForm({ transaction, onClose, onSave }: Transa
         {error && <p className="form-error" role="alert">{error}</p>}
         <div className="dialog-actions">
           <button className="button button--secondary" type="button" disabled={isSubmitting} onClick={onClose}>Отмена</button>
-          <button className="button button--primary" type="submit" disabled={isSubmitting}>{isSubmitting ? 'Сохранение…' : 'Сохранить'}</button>
+          <button className="button button--primary" type="submit" disabled={isSubmitting || accountsLoading || accounts.length === 0}>{isSubmitting ? 'Сохранение…' : 'Сохранить'}</button>
         </div>
       </form>
     </dialog>

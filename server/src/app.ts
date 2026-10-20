@@ -10,8 +10,10 @@ import {
   transactionQuerySchema,
 } from './modules/transactions/transaction.schema.js';
 import type { TransactionRepository } from './modules/transactions/transaction.repository.js';
+import { accountInputSchema, transferInputSchema, transferQuerySchema } from './modules/accounts/account.schema.js';
+import { AccountMissingError, DuplicateAccountNameError, type AccountRepository } from './modules/accounts/account.repository.js';
 
-type AppDependencies = { repository: TransactionRepository; clientOrigin: string };
+type AppDependencies = { repository: TransactionRepository; accounts?: AccountRepository; clientOrigin: string };
 
 const invalidInput = (error: ZodError) => ({
   error: { code: 'VALIDATION_ERROR', message: 'Invalid request data', issues: z.treeifyError(error) },
@@ -19,7 +21,7 @@ const invalidInput = (error: ZodError) => ({
 
 const notFound = { error: { code: 'NOT_FOUND', message: 'Transaction not found' } };
 
-export function createApp({ repository, clientOrigin }: AppDependencies) {
+export function createApp({ repository, accounts, clientOrigin }: AppDependencies) {
   const app = express();
   app.disable('x-powered-by');
   app.use(helmet());
@@ -29,6 +31,32 @@ export function createApp({ repository, clientOrigin }: AppDependencies) {
   app.get('/api/health', (_request: Request, response: Response) => {
     response.json({ status: 'ok' });
   });
+
+  if (accounts) {
+    app.get('/api/accounts', async (_request: Request, response: Response) => {
+      response.json({ data: await accounts.list() });
+    });
+
+    app.post('/api/accounts', async (request: Request, response: Response) => {
+      const parsed = accountInputSchema.safeParse(request.body);
+      if (!parsed.success) { response.status(422).json(invalidInput(parsed.error)); return; }
+      const account = await accounts.create(parsed.data);
+      response.status(201).json({ data: account });
+    });
+
+    app.get('/api/transfers', async (request: Request, response: Response) => {
+      const parsed = transferQuerySchema.safeParse(request.query);
+      if (!parsed.success) { response.status(422).json(invalidInput(parsed.error)); return; }
+      response.json({ data: await accounts.listTransfers(parsed.data.limit) });
+    });
+
+    app.post('/api/transfers', async (request: Request, response: Response) => {
+      const parsed = transferInputSchema.safeParse(request.body);
+      if (!parsed.success) { response.status(422).json(invalidInput(parsed.error)); return; }
+      const transfer = await accounts.createTransfer(parsed.data);
+      response.status(201).json({ data: transfer });
+    });
+  }
 
   app.get('/api/transactions', async (request: Request, response: Response) => {
     const parsed = transactionQuerySchema.safeParse(request.query);
@@ -94,6 +122,18 @@ export function createApp({ repository, clientOrigin }: AppDependencies) {
   const errorHandler: ErrorRequestHandler = (error: unknown, _request, response, _next) => {
     if (error instanceof SyntaxError && 'body' in error) {
       response.status(400).json({ error: { code: 'INVALID_JSON', message: 'Malformed JSON body' } });
+      return;
+    }
+    if (error instanceof AccountMissingError) {
+      response.status(404).json({ error: { code: 'NOT_FOUND', message: 'Account not found' } });
+      return;
+    }
+    if (error instanceof DuplicateAccountNameError) {
+      response.status(409).json({ error: { code: 'CONFLICT', message: 'Account name already exists' } });
+      return;
+    }
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === '23503') {
+      response.status(422).json({ error: { code: 'INVALID_ACCOUNT', message: 'Account does not exist' } });
       return;
     }
     console.error('Unhandled API error:', error);
