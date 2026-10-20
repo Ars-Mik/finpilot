@@ -12,8 +12,10 @@ import {
 import type { TransactionRepository } from './modules/transactions/transaction.repository.js';
 import { accountInputSchema, transferInputSchema, transferQuerySchema } from './modules/accounts/account.schema.js';
 import { AccountMissingError, DuplicateAccountNameError, type AccountRepository } from './modules/accounts/account.repository.js';
+import { budgetIdSchema, budgetInputSchema, budgetPatchSchema, budgetQuerySchema } from './modules/budgets/budget.schema.js';
+import { DuplicateBudgetError, type BudgetRepository } from './modules/budgets/budget.repository.js';
 
-type AppDependencies = { repository: TransactionRepository; accounts?: AccountRepository; clientOrigin: string };
+type AppDependencies = { repository: TransactionRepository; accounts?: AccountRepository; budgets?: BudgetRepository; clientOrigin: string };
 
 const invalidInput = (error: ZodError) => ({
   error: { code: 'VALIDATION_ERROR', message: 'Invalid request data', issues: z.treeifyError(error) },
@@ -21,7 +23,7 @@ const invalidInput = (error: ZodError) => ({
 
 const notFound = { error: { code: 'NOT_FOUND', message: 'Transaction not found' } };
 
-export function createApp({ repository, accounts, clientOrigin }: AppDependencies) {
+export function createApp({ repository, accounts, budgets, clientOrigin }: AppDependencies) {
   const app = express();
   app.disable('x-powered-by');
   app.use(helmet());
@@ -55,6 +57,43 @@ export function createApp({ repository, accounts, clientOrigin }: AppDependencie
       if (!parsed.success) { response.status(422).json(invalidInput(parsed.error)); return; }
       const transfer = await accounts.createTransfer(parsed.data);
       response.status(201).json({ data: transfer });
+    });
+  }
+
+  if (budgets) {
+    app.get('/api/budgets', async (request: Request, response: Response) => {
+      const parsed = budgetQuerySchema.safeParse(request.query);
+      if (!parsed.success) { response.status(422).json(invalidInput(parsed.error)); return; }
+      response.json({ data: await budgets.overview(parsed.data.month) });
+    });
+
+    app.post('/api/budgets', async (request: Request, response: Response) => {
+      const parsed = budgetInputSchema.safeParse(request.body);
+      if (!parsed.success) { response.status(422).json(invalidInput(parsed.error)); return; }
+      const budget = await budgets.create(parsed.data);
+      response.status(201).location(`/api/budgets/${budget.id}`).json({ data: budget });
+    });
+
+    app.patch('/api/budgets/:id', async (request: Request, response: Response) => {
+      const id = budgetIdSchema.safeParse(request.params.id);
+      const patch = budgetPatchSchema.safeParse(request.body);
+      if (!id.success) { response.status(422).json(invalidInput(id.error)); return; }
+      if (!patch.success) { response.status(422).json(invalidInput(patch.error)); return; }
+      if (!await budgets.update(id.data, patch.data)) {
+        response.status(404).json({ error: { code: 'NOT_FOUND', message: 'Budget not found' } });
+        return;
+      }
+      response.status(204).send();
+    });
+
+    app.delete('/api/budgets/:id', async (request: Request, response: Response) => {
+      const id = budgetIdSchema.safeParse(request.params.id);
+      if (!id.success) { response.status(422).json(invalidInput(id.error)); return; }
+      if (!await budgets.remove(id.data)) {
+        response.status(404).json({ error: { code: 'NOT_FOUND', message: 'Budget not found' } });
+        return;
+      }
+      response.status(204).send();
     });
   }
 
@@ -126,6 +165,10 @@ export function createApp({ repository, accounts, clientOrigin }: AppDependencie
     }
     if (error instanceof AccountMissingError) {
       response.status(404).json({ error: { code: 'NOT_FOUND', message: 'Account not found' } });
+      return;
+    }
+    if (error instanceof DuplicateBudgetError) {
+      response.status(409).json({ error: { code: 'CONFLICT', message: 'Budget already exists for this month and category' } });
       return;
     }
     if (error instanceof DuplicateAccountNameError) {

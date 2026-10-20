@@ -3,10 +3,11 @@ import { loadConfig } from './config.js';
 import { createPool } from './db/pool.js';
 import { PgTransactionRepository } from './modules/transactions/pg-transaction.repository.js';
 import { PgAccountRepository } from './modules/accounts/pg-account.repository.js';
+import { PgBudgetRepository } from './modules/budgets/pg-budget.repository.js';
 
 const config = loadConfig();
 const pool = createPool(config.DATABASE_URL);
-const app = createApp({ repository: new PgTransactionRepository(pool), accounts: new PgAccountRepository(pool), clientOrigin: config.CLIENT_ORIGIN });
+const app = createApp({ repository: new PgTransactionRepository(pool), accounts: new PgAccountRepository(pool), budgets: new PgBudgetRepository(pool), clientOrigin: config.CLIENT_ORIGIN });
 
 const server = app.listen(config.PORT, config.HOST, () => {
   console.log(`FinPilot API: http://${config.HOST}:${config.PORT}`);
