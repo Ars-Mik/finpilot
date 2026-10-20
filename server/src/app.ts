@@ -17,8 +17,11 @@ import { DuplicateBudgetError, type BudgetRepository } from './modules/budgets/b
 import { recurringIdSchema, recurringInputSchema, recurringQuerySchema, recurringToggleSchema } from './modules/recurring/recurring.schema.js';
 import { utcToday } from './modules/recurring/schedule.js';
 import type { RecurringRepository } from './modules/recurring/recurring.repository.js';
+import { forecastRequestSchema } from './modules/forecast/forecast.schema.js';
+import { buildForecast, forecastEndDate, forecastScenarioIsValid } from './modules/forecast/forecast.service.js';
+import type { ForecastRepository } from './modules/forecast/forecast.repository.js';
 
-type AppDependencies = { repository: TransactionRepository; accounts?: AccountRepository; budgets?: BudgetRepository; recurring?: RecurringRepository; now?: () => Date; clientOrigin: string };
+type AppDependencies = { repository: TransactionRepository; accounts?: AccountRepository; budgets?: BudgetRepository; recurring?: RecurringRepository; forecast?: ForecastRepository; now?: () => Date; clientOrigin: string };
 
 const invalidInput = (error: ZodError) => ({
   error: { code: 'VALIDATION_ERROR', message: 'Invalid request data', issues: z.treeifyError(error) },
@@ -26,7 +29,7 @@ const invalidInput = (error: ZodError) => ({
 
 const notFound = { error: { code: 'NOT_FOUND', message: 'Transaction not found' } };
 
-export function createApp({ repository, accounts, budgets, recurring, now = () => new Date(), clientOrigin }: AppDependencies) {
+export function createApp({ repository, accounts, budgets, recurring, forecast, now = () => new Date(), clientOrigin }: AppDependencies) {
   const app = express();
   app.disable('x-powered-by');
   app.use(helmet());
@@ -132,6 +135,21 @@ export function createApp({ repository, accounts, budgets, recurring, now = () =
         return;
       }
       response.status(204).send();
+    });
+  }
+
+  if (forecast) {
+    // Read-only calculation: a scenario never inserts a real transaction.
+    app.post('/api/forecast/simulate', async (request: Request, response: Response) => {
+      const parsed = forecastRequestSchema.safeParse(request.body);
+      if (!parsed.success) { response.status(422).json(invalidInput(parsed.error)); return; }
+      const asOf = utcToday(now());
+      if (!forecastScenarioIsValid(parsed.data, asOf)) {
+        response.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'Scenario date must be in the future and within the forecast period' } });
+        return;
+      }
+      const snapshot = await forecast.readSnapshot(asOf, forecastEndDate(asOf, parsed.data.months));
+      response.json({ data: buildForecast(snapshot, parsed.data, asOf) });
     });
   }
 
