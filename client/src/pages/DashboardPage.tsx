@@ -1,22 +1,38 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { getTransactionOverview, type TransactionOverview } from '../api/transactions';
 import { ArrowRight, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
 import { Link } from 'react-router';
 import BalanceCard from '../components/BalanceCard';
 import TransactionList from '../components/TransactionList';
-import { formatMoney, monthName, recentMonths, sortNewest, spendingByCategory, totalsFor, transactionsInMonth } from '../lib/finance';
-import type { Transaction } from '../types/finance';
+import { formatMoney, monthName, recentMonths } from '../lib/finance';
 
-type DashboardPageProps = { transactions: readonly Transaction[] };
+type DashboardPageProps = { revision: number };
+type DashboardContentProps = { selectedMonth: string; setSelectedMonth: (month: string) => void; chartMonths: string[] };
 
-const chartMonths = recentMonths(6);
+function DashboardContent({ selectedMonth, setSelectedMonth, chartMonths }: DashboardContentProps) {
+  const [overview, setOverview] = useState<TransactionOverview | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-export default function DashboardPage({ transactions }: DashboardPageProps) {
-  const [selectedMonth, setSelectedMonth] = useState(chartMonths[chartMonths.length - 1]);
-  const periodTransactions = transactionsInMonth(transactions, selectedMonth);
-  const currentTotals = totalsFor(periodTransactions);
-  const overallTotals = totalsFor(transactions);
-  const topCategories = spendingByCategory(periodTransactions).slice(0, 4);
-  const months = chartMonths.map((month) => ({ month, ...totalsFor(transactionsInMonth(transactions, month)) }));
+  useEffect(() => {
+    const controller = new AbortController();
+    void getTransactionOverview(selectedMonth, chartMonths[chartMonths.length - 1], controller.signal)
+      .then((result) => { if (!controller.signal.aborted) setOverview(result); })
+      .catch((cause: unknown) => {
+        if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Не удалось загрузить обзор.');
+      });
+    return () => controller.abort();
+  }, [selectedMonth, chartMonths]);
+
+  if (error) return <div className="api-alert" role="alert">{error}</div>;
+  if (!overview) return <div className="data-state" role="status">Загружаем финансовую сводку…</div>;
+
+  const currentTotals = {
+    income: overview.selected.incomeCents,
+    expense: overview.selected.expenseCents,
+    balance: overview.selected.incomeCents - overview.selected.expenseCents,
+  };
+  const topCategories = overview.categories;
+  const months = overview.months.map((entry) => ({ month: entry.month, income: entry.incomeCents, expense: entry.expenseCents }));
   const chartMax = Math.max(1, ...months.flatMap(({ income, expense }) => [income, expense]));
   const savingsPercent = currentTotals.income > 0
     ? Math.round((currentTotals.balance / currentTotals.income) * 100)
@@ -24,6 +40,7 @@ export default function DashboardPage({ transactions }: DashboardPageProps) {
 
   return (
     <div className="page-stack">
+      {overview.total === 0 && <div className="welcome-banner"><strong>Операций пока нет. Добавь первую запись.</strong></div>}
       <div className="page-heading">
         <div>
           <div className="eyebrow">Твои финансы под контролем</div>
@@ -38,7 +55,7 @@ export default function DashboardPage({ transactions }: DashboardPageProps) {
         </label>
       </div>
 
-      <BalanceCard balanceCents={overallTotals.balance} monthBalanceCents={currentTotals.balance} periodLabel={monthName(selectedMonth)} />
+      <BalanceCard balanceCents={overview.balanceCents} monthBalanceCents={currentTotals.balance} periodLabel={monthName(selectedMonth)} />
 
       <div className="summary-grid">
         <div className="summary-card">
@@ -102,8 +119,14 @@ export default function DashboardPage({ transactions }: DashboardPageProps) {
           <div><h2>Последние операции</h2><p>Недавняя активность по счетам</p></div>
           <Link className="text-link" to="/transactions">Все операции <ArrowRight size={16} /></Link>
         </div>
-        <TransactionList transactions={sortNewest(transactions).slice(0, 5)} />
+        <TransactionList transactions={overview.recent} />
       </section>
     </div>
   );
+}
+
+export default function DashboardPage({ revision }: DashboardPageProps) {
+  const chartMonths = recentMonths(6);
+  const [selectedMonth, setSelectedMonth] = useState(chartMonths[chartMonths.length - 1]);
+  return <DashboardContent key={`${selectedMonth}:${revision}`} selectedMonth={selectedMonth} setSelectedMonth={setSelectedMonth} chartMonths={chartMonths} />;
 }

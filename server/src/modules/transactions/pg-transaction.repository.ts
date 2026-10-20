@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
 import type { Transaction, TransactionInput, TransactionQuery } from './transaction.schema.js';
-import type { TransactionPage, TransactionRepository } from './transaction.repository.js';
+import type { TransactionOverview, TransactionPage, TransactionRepository, TransactionTotals } from './transaction.repository.js';
 
 type TransactionRow = {
   id: string;
@@ -12,12 +12,27 @@ type TransactionRow = {
   date: string;
 };
 
+type SumRow = { incomeCents: string; expenseCents: string };
+type PageTotalsRow = SumRow & { total: string };
+type MonthSumRow = SumRow & { month: string };
+type CategoryRow = { category: string; amountCents: string };
+
 const SELECT_COLUMNS = `id, title, amount_cents::text AS "amountCents", type, category, date::text AS date`;
+const TOTALS_COLUMNS = `COALESCE(SUM(amount_cents) FILTER (WHERE type = 'income'), 0)::text AS "incomeCents",
+  COALESCE(SUM(amount_cents) FILTER (WHERE type = 'expense'), 0)::text AS "expenseCents"`;
+
+function safeNumber(value: string): number {
+  const number = Number(value);
+  if (!Number.isSafeInteger(number) || number < 0) throw new Error('Unsafe integer returned by PostgreSQL');
+  return number;
+}
 
 function toTransaction(row: TransactionRow): Transaction {
-  const amountCents = Number(row.amountCents);
-  if (!Number.isSafeInteger(amountCents)) throw new Error('Unsafe amount returned by PostgreSQL');
-  return { ...row, amountCents };
+  return { ...row, amountCents: safeNumber(row.amountCents) };
+}
+
+function toTotals(row: SumRow): TransactionTotals {
+  return { incomeCents: safeNumber(row.incomeCents), expenseCents: safeNumber(row.expenseCents) };
 }
 
 export class PgTransactionRepository implements TransactionRepository {
@@ -37,15 +52,59 @@ export class PgTransactionRepository implements TransactionRepository {
     }
 
     const where = filters.length ? ` WHERE ${filters.join(' AND ')}` : '';
-    const count = await this.pool.query<{ total: string }>(`SELECT COUNT(*)::text AS total FROM transactions${where}`, values);
-    const total = Number(count.rows[0]?.total ?? '0');
+    const count = await this.pool.query<PageTotalsRow>(
+      `SELECT COUNT(*)::text AS total, ${TOTALS_COLUMNS} FROM transactions${where}`, values,
+    );
+    const summary = count.rows[0];
+    if (!summary) throw new Error('Unable to read transaction totals');
+
     const limit = add(query.limit);
     const offset = add((query.page - 1) * query.limit);
     const rows = await this.pool.query<TransactionRow>(
       `SELECT ${SELECT_COLUMNS} FROM transactions${where} ORDER BY date DESC, created_at DESC, id DESC LIMIT ${limit} OFFSET ${offset}`,
       values,
     );
-    return { items: rows.rows.map(toTransaction), total };
+    return { items: rows.rows.map(toTransaction), total: safeNumber(summary.total), totals: toTotals(summary) };
+  }
+
+  async overview(selectedMonth: string, chartMonths: readonly string[]): Promise<TransactionOverview> {
+    const [overallResult, selectedResult, chartResult, categoryResult, recentResult] = await Promise.all([
+      this.pool.query<PageTotalsRow>(`SELECT COUNT(*)::text AS total, ${TOTALS_COLUMNS} FROM transactions`),
+      this.pool.query<SumRow>(
+        `SELECT ${TOTALS_COLUMNS} FROM transactions WHERE date >= $1::date AND date < ($1::date + INTERVAL '1 month')`,
+        [`${selectedMonth}-01`],
+      ),
+      this.pool.query<MonthSumRow>(
+        `SELECT to_char(date, 'YYYY-MM') AS month, ${TOTALS_COLUMNS}
+         FROM transactions WHERE date >= $1::date AND date < ($2::date + INTERVAL '1 month')
+         GROUP BY month ORDER BY month ASC`,
+        [`${chartMonths[0]}-01`, `${chartMonths[chartMonths.length - 1]}-01`],
+      ),
+      this.pool.query<CategoryRow>(
+        `SELECT category, SUM(amount_cents)::text AS "amountCents"
+         FROM transactions WHERE type = 'expense' AND date >= $1::date AND date < ($1::date + INTERVAL '1 month')
+         GROUP BY category ORDER BY SUM(amount_cents) DESC, category ASC LIMIT 4`,
+        [`${selectedMonth}-01`],
+      ),
+      this.pool.query<TransactionRow>(
+        `SELECT ${SELECT_COLUMNS} FROM transactions ORDER BY date DESC, created_at DESC, id DESC LIMIT 5`,
+      ),
+    ]);
+
+    const overall = overallResult.rows[0];
+    const selected = selectedResult.rows[0];
+    if (!overall || !selected) throw new Error('Unable to read finance overview');
+    const allTotals = toTotals(overall);
+    const monthMap = new Map(chartResult.rows.map((row) => [row.month, toTotals(row)]));
+
+    return {
+      total: safeNumber(overall.total),
+      balanceCents: allTotals.incomeCents - allTotals.expenseCents,
+      selected: toTotals(selected),
+      months: chartMonths.map((month) => ({ month, ...(monthMap.get(month) ?? { incomeCents: 0, expenseCents: 0 }) })),
+      categories: categoryResult.rows.map((row) => ({ category: row.category, amountCents: safeNumber(row.amountCents) })),
+      recent: recentResult.rows.map(toTransaction),
+    };
   }
 
   async findById(id: string): Promise<Transaction | null> {
