@@ -265,3 +265,34 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 @media (max-width: 1070px) { .budget-grid { grid-template-columns: 1fr; } }
 @media (max-width: 720px) { .budget-summary, .budget-insights { grid-template-columns: 1fr; } .budget-summary > div { padding: 19px 22px; } .budget-heading { align-items: stretch; flex-direction: column; } .budget-heading .period-control { align-self: stretch; } .budget-heading .period-control input { max-width: 100%; } }
 @media (max-width: 460px) { .budget-card { padding: 17px 14px; } .budget-card__numbers strong { font-size: 19px; } }
+
+/* Recurring payments */
+.recurring-page { display: grid; gap: 23px; }
+.recurring-summary { display: flex; gap: 1px; align-items: stretch; background: #e5e8f2; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+.recurring-summary > div { flex: 1; background: #fff; display: grid; gap: 8px; padding: 20px 25px; min-width: 0; }
+.recurring-summary > div span { font-size: 12px; color: var(--muted); }
+.recurring-summary > div strong { font-size: 27px; color: var(--ink); }
+.recurring-summary > .button { align-self: center; margin: 0 20px; }
+.recurring-layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(320px, 1fr); gap: 20px; align-items: start; }
+.recurring-list, .recurring-create { min-width: 0; }
+.recurring-cards { display: grid; gap: 14px; margin-top: 22px; }
+.recurring-card { display: grid; gap: 15px; padding: 21px; border: 1px solid var(--line); border-radius: 16px; background: #fff; }
+.recurring-card--paused { opacity: .7; background: #f9fafc; }
+.recurring-card__top { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
+.recurring-card__top > div { min-width: 0; }
+.recurring-card__top h3 { font-size: 15px; color: var(--ink); overflow-wrap: anywhere; }
+.recurring-card__top span { display: block; font-size: 12px; color: var(--muted); margin-top: 5px; }
+.recurring-card__top strong { font-size: 17px; white-space: nowrap; }
+.recurring-income { color: #07936e; }
+.recurring-expense { color: #d14b65; }
+.recurring-card__details, .recurring-card__dates { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px; color: var(--muted); }
+.recurring-card__details > span, .recurring-card__dates > span { padding: 6px 10px; background: #f3f5fb; border-radius: 7px; }
+.recurring-card > .button { justify-self: start; }
+.recurring-form { display: grid; gap: 16px; margin-top: 21px; }
+.recurring-form > .button { justify-self: start; }
+.recurring-hint { font-size: 12px; color: var(--muted); line-height: 1.6; }
+.recurring-empty { padding: 30px 0; font-size: 13px; color: var(--muted); }
+.recurring-notice { display: flex; align-items: center; gap: 9px; border: 1px solid #bbe5d2; background: #f0fcf6; padding: 13px 17px; border-radius: 11px; font-size: 13px; color: #087354; }
+@media (max-width: 1060px) { .recurring-layout { grid-template-columns: 1fr; } }
+@media (max-width: 700px) { .recurring-summary { flex-wrap: wrap; } .recurring-summary > .button { width: 100%; margin: 12px; } }
+@media (max-width: 460px) { .recurring-card__top { flex-direction: column; } .recurring-summary > div { padding: 15px; } }
