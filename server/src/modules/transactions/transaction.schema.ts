@@ -1,8 +1,10 @@
 import { z } from 'zod';
 
+export const EXPENSE_CATEGORIES = ['Продукты', 'Жильё', 'Транспорт', 'Подписки', 'Покупки', 'Досуг', 'Другое'] as const;
+
 const CATEGORIES = {
   income: ['Зарплата', 'Подработка', 'Подарки', 'Другое'],
-  expense: ['Продукты', 'Жильё', 'Транспорт', 'Подписки', 'Покупки', 'Досуг', 'Другое'],
+  expense: EXPENSE_CATEGORIES,
 } as const;
 
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD')
