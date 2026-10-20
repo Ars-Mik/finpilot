@@ -38,15 +38,15 @@ function CompareChart({ entries, current, showScenario }: { entries: ForecastMon
         {[0, 1, 2, 3, 4].map((part) => {
           const y = top + ((bottom - top) * part) / 4;
           const value = maximum - (span * part) / 4;
-          return <g key={part}><line x1={left} x2={right} y1={y} y2={y} stroke="#e9edf7" strokeDasharray="4 6" />
-            <text x={left - 10} y={y + 4} textAnchor="end" fontSize="10" fill="#8993a8">{new Intl.NumberFormat('ru-RU', { notation: 'compact', maximumFractionDigits: 1 }).format(value / 100)}</text></g>;
+          return <g key={part}><line x1={left} x2={right} y1={y} y2={y} stroke="var(--chart-grid)" strokeDasharray="4 6" />
+            <text x={left - 10} y={y + 4} textAnchor="end" fontSize="10" fill="var(--chart-axis)">{new Intl.NumberFormat('ru-RU', { notation: 'compact', maximumFractionDigits: 1 }).format(value / 100)}</text></g>;
         })}
-        <line x1={left} x2={right} y1={zeroY} y2={zeroY} stroke="#c9cedc" strokeWidth="1.25" />
-        <path d={path(baseline)} stroke="#5b62d9" strokeWidth="3.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-        {showScenario && <path d={path(scenario)} stroke="#e58a66" strokeWidth="3.2" strokeDasharray="7 5" fill="none" strokeLinecap="round" strokeLinejoin="round" />}
-        {baseline.map(({ x, y }, index) => <circle key={`base-${index}`} cx={x} cy={y} r="4" fill="#5b62d9" stroke="white" strokeWidth="1.5" />)}
-        {showScenario && scenario.map(({ x, y }, index) => <circle key={`scenario-${index}`} cx={x} cy={y} r="3.5" fill="#e58a66" stroke="white" strokeWidth="1.5" />)}
-        {entries.map((entry, index) => <text key={entry.month} x={left + ((right - left) * (index + 1)) / entries.length} y={231} fontSize="10" fill="#8993a8" textAnchor="middle">{monthName(entry.month, true)}</text>)}
+        <line x1={left} x2={right} y1={zeroY} y2={zeroY} stroke="var(--chart-grid)" strokeWidth="1.25" />
+        <path d={path(baseline)} stroke="var(--chart-income)" strokeWidth="3.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        {showScenario && <path d={path(scenario)} stroke="var(--chart-scenario)" strokeWidth="3.2" strokeDasharray="7 5" fill="none" strokeLinecap="round" strokeLinejoin="round" />}
+        {baseline.map(({ x, y }, index) => <circle key={`base-${index}`} cx={x} cy={y} r="4" fill="var(--chart-income)" stroke="var(--surface)" strokeWidth="1.5" />)}
+        {showScenario && scenario.map(({ x, y }, index) => <circle key={`scenario-${index}`} cx={x} cy={y} r="3.5" fill="var(--chart-scenario)" stroke="var(--surface)" strokeWidth="1.5" />)}
+        {entries.map((entry, index) => <text key={entry.month} x={left + ((right - left) * (index + 1)) / entries.length} y={231} fontSize="10" fill="var(--chart-axis)" textAnchor="middle">{monthName(entry.month, true)}</text>)}
       </svg>
       <div className="forecast-chart__legend"><span><i className="forecast-legend--base" /> Базовый прогноз</span>
         {showScenario && <span><i className="forecast-legend--scenario" /> С учётом покупки</span>}</div>

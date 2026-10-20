@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react';
-import { AlertCircle, ArrowLeftRight, ChartNoAxesCombined, LayoutDashboard, Landmark, Target, CalendarClock, TrendingUp, BarChart3, Plus, RotateCcw, ShieldCheck } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { AlertCircle, ArrowLeftRight, ChartNoAxesCombined, LayoutDashboard, Landmark, Target, CalendarClock, TrendingUp, BarChart3, Plus, RotateCcw, ShieldCheck, Menu, X, Moon, Sun } from 'lucide-react';
 import { BrowserRouter, NavLink, Navigate, Route, Routes, useLocation } from 'react-router';
 import { createTransaction, removeTransaction, resetDemoTransactions, updateTransaction } from './api/transactions';
 import TransactionForm from './components/TransactionForm';
@@ -13,8 +13,30 @@ import AnalyticsPage from './pages/AnalyticsPage';
 import TransactionsPage from './pages/TransactionsPage';
 import type { Transaction, TransactionInput } from './types/finance';
 import './App.css';
+import './styles/design-system.css';
+
+type Theme = 'light' | 'dark';
+
+function getInitialTheme(): Theme {
+  try {
+    const saved = window.localStorage.getItem('finpilot.theme');
+    if (saved === 'light' || saved === 'dark') return saved;
+  } catch {
+    // Browser settings may block access to localStorage.
+  }
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
 
 function AppContent() {
+  const [theme, setTheme] = useState<Theme>(getInitialTheme);
+  const [navigationOpen, setNavigationOpen] = useState(false);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    const themeColor = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    if (themeColor) themeColor.content = theme === 'dark' ? '#101923' : '#f5f7fa';
+    try { window.localStorage.setItem('finpilot.theme', theme); } catch { /* Storage is optional. */ }
+  }, [theme]);
   const [revision, setRevision] = useState(0);
   const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -70,16 +92,25 @@ function AppContent() {
 
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#main-content">Перейти к содержимому</a>
       <aside className="sidebar">
-        <NavLink to="/" className="brand" aria-label="FinPilot — главная">
-          <span className="brand__icon"><ChartNoAxesCombined size={24} strokeWidth={2.5} /></span>
-          <span>Fin<span className="brand__accent">Pilot</span><small>finance made clear</small></span>
-        </NavLink>
+        <div className="sidebar__header">
+          <NavLink to="/" className="brand" aria-label="FinPilot — главная" onClick={() => setNavigationOpen(false)}>
+            <span className="brand__icon"><ChartNoAxesCombined size={22} strokeWidth={2.2} aria-hidden="true" /></span>
+            <span>Fin<span className="brand__accent">Pilot</span><small>Личные финансы</small></span>
+          </NavLink>
+          <button type="button" className="sidebar__mobile-toggle" aria-expanded={navigationOpen}
+            aria-controls="primary-navigation" aria-label={navigationOpen ? 'Закрыть меню' : 'Открыть меню'}
+            onClick={() => setNavigationOpen((open) => !open)}>
+            {navigationOpen ? <X size={22} aria-hidden="true" /> : <Menu size={22} aria-hidden="true" />}
+          </button>
+        </div>
         <div className="sidebar__section-label">РАБОЧЕЕ ПРОСТРАНСТВО</div>
-        <nav className="sidebar__nav" aria-label="Основная навигация">
+        <nav id="primary-navigation" className={`sidebar__nav${navigationOpen ? ' sidebar__nav--open' : ''}`} aria-label="Основная навигация">
           {links.map(({ to, label, icon: Icon, end }) => (
-            <NavLink key={to} to={to} end={end} className={({ isActive }) => `nav-link${isActive ? ' nav-link--active' : ''}`}>
-              <Icon size={20} /><span>{label}</span>
+            <NavLink key={to} to={to} end={end} onClick={() => setNavigationOpen(false)}
+              className={({ isActive }) => `nav-link${isActive ? ' nav-link--active' : ''}`}>
+              <Icon size={19} aria-hidden="true" /><span>{label}</span>
             </NavLink>
           ))}
         </nav>
@@ -96,11 +127,17 @@ function AppContent() {
       <div className="main-area">
         <header className="topbar">
           <div className="topbar__location"><span>FinPilot</span><span className="topbar__separator">/</span><strong>{location.pathname === '/transactions' ? 'Операции' : location.pathname === '/accounts' ? 'Счета' : location.pathname === '/budgets' ? 'Бюджеты' : location.pathname === '/recurring' ? 'Регулярные' : location.pathname === '/forecast' ? 'Прогноз' : location.pathname === '/analytics' ? 'Аналитика' : 'Обзор'}</strong></div>
-          <button className="button button--primary" type="button" disabled={isBusy} onClick={() => setFormTransaction(null)}>
-            <Plus size={19} /> <span>Новая операция</span>
-          </button>
+          <div className="topbar__tools">
+            <button className="theme-toggle" type="button" onClick={() => setTheme((value) => value === 'light' ? 'dark' : 'light')}
+              aria-label={theme === 'light' ? 'Включить тёмную тему' : 'Включить светлую тему'} title={theme === 'light' ? 'Тёмная тема' : 'Светлая тема'}>
+              {theme === 'light' ? <Moon size={19} aria-hidden="true" /> : <Sun size={19} aria-hidden="true" />}
+            </button>
+            <button className="button button--primary" type="button" aria-label="Новая операция" disabled={isBusy} onClick={() => setFormTransaction(null)}>
+              <Plus size={18} aria-hidden="true" /> <span>Новая операция</span>
+            </button>
+          </div>
         </header>
-        <main className="page-content">
+        <main id="main-content" className="page-content" tabIndex={-1}>
           {error && (
             <div className="api-alert" role="alert">
               <AlertCircle size={19} />
