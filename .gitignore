@@ -10,3 +10,8 @@ coverage/
 
 # Local PostgreSQL backups
 backups/
+
+# Browser UI test artifacts
+client/playwright-report/
+client/test-results/
+client/blob-report/
