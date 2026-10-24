@@ -14,7 +14,8 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "db:cleanup-guests": "tsx src/db/cleanup-guests.ts"
+    "db:cleanup-guests": "tsx src/db/cleanup-guests.ts",
+    "recurring:apply": "tsx src/jobs/run-recurring.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",

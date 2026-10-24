@@ -17,7 +17,7 @@ try {
   if (-not $dockerAvailable) {
     throw 'Docker CLI was not found. Install/start Docker Desktop first.'
   }
-  Write-Host '[14.2] Starting isolated PostgreSQL on 127.0.0.1:5436...'
+  Write-Host '[QA] Starting isolated PostgreSQL on 127.0.0.1:5436...'
   & docker compose -p $project -f $compose up -d --wait postgres-qa
   if ($LASTEXITCODE -ne 0) { throw 'QA PostgreSQL failed to start.' }
 
@@ -31,16 +31,19 @@ try {
 
   Push-Location (Join-Path $root 'server')
   try {
-    Write-Host '[14.2] Applying migrations in the QA database only...'
+    Write-Host '[QA] Applying migrations in the QA database only...'
     & npm run db:migrate
     if ($LASTEXITCODE -ne 0) { throw 'QA database migrations failed.' }
-    Write-Host '[14.2] Checking TypeScript...'
+    Write-Host '[QA] Checking TypeScript...'
     & npm run build
     if ($LASTEXITCODE -ne 0) { throw 'Backend TypeScript build failed.' }
-    Write-Host '[14.2] Running REAL PostgreSQL/RLS integration tests...'
-    & npm test -- tests/guest-isolation.test.ts
-    if ($LASTEXITCODE -ne 0) { throw 'Guest isolation integration tests failed.' }
-    Write-Host '[14.2] PostgreSQL guest isolation checks PASSED.'
+    Write-Host '[QA] Running REAL PostgreSQL/RLS integration tests...'
+    & npm test -- tests/guest-isolation.test.ts tests/recurring-worker.test.ts
+    if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL integration tests failed.' }
+    Write-Host '[QA] Running the recurring command with the restricted role...'
+    & npm run recurring:apply
+    if ($LASTEXITCODE -ne 0) { throw 'Recurring job failed.' }
+    Write-Host '[QA] PostgreSQL integration checks PASSED.'
   }
   finally { Pop-Location }
 }
@@ -49,7 +52,7 @@ finally {
     [Environment]::SetEnvironmentVariable($name, $saved[$name], 'Process')
   }
   # Remove only the separate QA container/network, preserving its QA volume.
-  Write-Host '[14.2] Stopping QA containers; preserving the QA-only volume...'
+  Write-Host '[QA] Stopping QA containers; preserving the QA-only volume...'
   if ($dockerAvailable) {
     try {
       & docker compose -p $project -f $compose down

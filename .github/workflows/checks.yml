@@ -43,6 +43,9 @@ jobs:
       - run: npm run build
       - run: npm run db:migrate
       - run: npm test
+      - run: npm run recurring:apply
+        env:
+          DATABASE_URL: ''
       - run: npm audit --omit=dev
 
   frontend:

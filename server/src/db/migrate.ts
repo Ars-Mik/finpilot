@@ -1,9 +1,9 @@
-import { createHash } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { loadAdminConfig } from '../config.js';
 import { createPool } from './pool.js';
+import { checksumForMigration, matchesMigrationChecksum } from './migration-checksum.js';
 
 const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), '../../migrations');
 const config = loadAdminConfig();
@@ -25,12 +25,12 @@ async function migrate(): Promise<void> {
     const filenames = (await readdir(migrationsDir)).filter((name) => /^\d{3}_[a-z0-9_]+\.sql$/.test(name)).sort();
     for (const filename of filenames) {
       const sql = await readFile(join(migrationsDir, filename), 'utf8');
-      const checksum = createHash('sha256').update(sql).digest('hex');
+      const checksum = checksumForMigration(sql);
       const existing = await client.query<{ checksum: string }>(
         'SELECT checksum FROM schema_migrations WHERE filename = $1', [filename],
       );
       if (existing.rows[0]) {
-        if (existing.rows[0].checksum !== checksum) {
+        if (!matchesMigrationChecksum(sql, existing.rows[0].checksum)) {
           throw new Error(`Migration ${filename} changed after being applied`);
         }
         continue;
