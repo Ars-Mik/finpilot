@@ -124,7 +124,7 @@ export class PgTransactionRepository implements TransactionRepository {
     const id = randomUUID();
     const result = await this.pool.query<TransactionRow>(
       `INSERT INTO transactions (id, title, amount_cents, type, category, date, account_id)
-       VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7::uuid, '00000000-0000-4000-8000-000000000001'::uuid)) RETURNING ${SELECT_COLUMNS}`,
+       VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7::uuid, (SELECT id FROM accounts WHERE name = 'Основной счёт' LIMIT 1))) RETURNING ${SELECT_COLUMNS}`,
       [id, input.title, input.amountCents, input.type, input.category, input.date, input.accountId ?? null],
     );
     if (!result.rows[0]) throw new Error('Insert did not return a row');

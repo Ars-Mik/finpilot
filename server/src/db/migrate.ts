@@ -6,7 +6,8 @@ import { loadConfig } from '../config.js';
 import { createPool } from './pool.js';
 
 const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), '../../migrations');
-const pool = createPool(loadConfig().DATABASE_URL);
+const config = loadConfig();
+const pool = createPool(config.DATABASE_URL);
 
 async function migrate(): Promise<void> {
   const client = await pool.connect();
@@ -40,6 +41,36 @@ async function migrate(): Promise<void> {
         [filename, checksum],
       );
       console.log(`Applied migration: ${filename}`);
+    }
+    // Provision a restricted runtime role AFTER all schema changes, within the
+    // same migration transaction. The runtime role must never own any tables.
+    const appUrl = new URL(config.APP_DATABASE_URL);
+    const role = decodeURIComponent(appUrl.username);
+    const password = decodeURIComponent(appUrl.password);
+    if (!role || !password || role === new URL(config.DATABASE_URL).username) {
+      throw new Error('APP_DATABASE_URL must contain a non-admin role and password');
+    }
+    const exists = await client.query<{ exists: boolean }>(
+      'SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = $1) AS exists', [role],
+    );
+    const template = exists.rows[0]?.exists ? 'ALTER ROLE %I WITH LOGIN PASSWORD %L' : 'CREATE ROLE %I LOGIN PASSWORD %L';
+    const formatted = await client.query<{ sql: string }>(
+      'SELECT format($1::text, $2::text, $3::text) AS sql', [template, role, password],
+    );
+    await client.query(formatted.rows[0]!.sql);
+    // These names are hard-coded: never grant schema ownership or BYPASSRLS.
+    const roleIdent = (await client.query<{ quoted: string }>(
+      "SELECT format('%I', $1::text) AS quoted", [role],
+    )).rows[0]!.quoted;
+    await client.query(`GRANT USAGE ON SCHEMA public TO ${roleIdent}`);
+    await client.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON
+      accounts, transactions, account_transfers, monthly_budgets, recurring_rules TO ${roleIdent}`);
+    await client.query(`GRANT SELECT, INSERT ON workspaces, guest_sessions TO ${roleIdent}`);
+    const permission = await client.query<{ rolsuper: boolean; rolbypassrls: boolean }>(
+      'SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = $1', [role],
+    );
+    if (!permission.rows[0] || permission.rows[0].rolsuper || permission.rows[0].rolbypassrls) {
+      throw new Error('Runtime role must not be a PostgreSQL superuser or BYPASSRLS');
     }
     await client.query('COMMIT');
     console.log('Database migrations are up to date.');
