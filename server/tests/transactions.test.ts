@@ -75,6 +75,14 @@ function setup() {
 }
 
 describe('transactions API', () => {
+  it('does not cache API responses', async () => {
+    const { app } = setup();
+    for (const path of ['/api/health', '/api/transactions', '/api/missing']) {
+      const response = await request(app).get(path);
+      expect(response.headers['cache-control']).toBe('no-store');
+    }
+  });
+
   it('returns health status', async () => {
     const { app } = setup();
     const response = await request(app).get('/api/health');

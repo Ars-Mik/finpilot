@@ -38,6 +38,10 @@ export function createApp({ repository, accounts, budgets, recurring, forecast, 
   if (trustedProxies && trustedProxies !== 'direct') app.set('trust proxy', trustedProxies);
   app.use(helmet());
   app.use(cors({ origin: clientOrigin, credentials: true }));
+  app.use('/api', (_request, response, next) => {
+    response.setHeader('Cache-Control', 'no-store');
+    next();
+  });
   app.use(express.json({ limit: '16kb' }));
 
   app.get('/api/health', (_request: Request, response: Response) => {

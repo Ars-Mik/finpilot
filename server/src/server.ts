@@ -23,7 +23,6 @@ const app = createApp({
   analytics: new PgAnalyticsRepository(workspacePool),
   guestSessions,
   clientOrigin: config.CLIENT_ORIGIN,
-  // With exactOptionalPropertyTypes, omit an optional key instead of passing undefined.
   ...(config.TRUSTED_PROXY_CIDRS !== undefined
     ? { trustedProxies: config.TRUSTED_PROXY_CIDRS }
     : {}),
@@ -32,6 +31,9 @@ const app = createApp({
 const server = app.listen(config.PORT, config.HOST, () => {
   console.log(`FinPilot API: http://${config.HOST}:${config.PORT}`);
 });
+
+server.headersTimeout = 10_000;
+server.requestTimeout = 30_000;
 
 async function shutdown() {
   server.close(async (error) => {
