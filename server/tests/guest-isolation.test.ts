@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { randomBytes } from 'node:crypto';
 import request from 'supertest';
 import type { Pool } from 'pg';
 import { createApp } from '../src/app.js';
@@ -31,7 +32,7 @@ describe.skipIf(!integrationUrl)('guest isolation (real PostgreSQL)', () => {
     pool = createPool(integrationUrl!);
     const scoped = createWorkspacePool(pool);
     const sessions = new GuestSessions(
-      pool, scoped, 'integration-test-only-secret-0123456789', origin, false,
+      pool, scoped, randomBytes(32).toString('hex'), origin, false,
       () => new Date('2026-10-20T12:00:00Z'),
     );
     app = createApp({
@@ -183,4 +184,35 @@ describe.skipIf(!integrationUrl)('guest isolation (real PostgreSQL)', () => {
     expect((await a.post('/api/forecast/simulate').set('X-FinPilot-CSRF', csrfA)
       .send({ months: 3, scenario: null })).status).toBe(200);
   }, 45000);
+
+  it('shares a PostgreSQL-backed session creation limit across API instances', async () => {
+    const secret = randomBytes(32).toString('hex');
+    const scoped = createWorkspacePool(pool);
+    const build = (trustedProxies?: string) => createApp({
+      repository: new PgTransactionRepository(scoped),
+      guestSessions: new GuestSessions(pool, scoped, secret, origin, false),
+      clientOrigin: origin, ...(trustedProxies ? { trustedProxies } : {}),
+    });
+    const instanceOne = build('loopback');
+    const instanceTwo = build('loopback');
+
+    // Ten fresh sessions from one real client, alternately handled by two
+    // processes, are admitted. The eleventh must be rejected by both.
+    for (let i = 0; i < 10; i += 1) {
+      const application = i % 2 === 0 ? instanceOne : instanceTwo;
+      const response = await request(application).get('/api/session')
+        .set('X-Forwarded-For', '203.0.113.10');
+      expect(response.status, `attempt ${i + 1}`).toBe(201);
+    }
+    const denied = await request(instanceOne).get('/api/session')
+      .set('X-Forwarded-For', '203.0.113.10');
+    expect(denied.status).toBe(429);
+    expect(denied.headers['retry-after']).toBe('3600');
+    expect(denied.headers['set-cookie']).toBeUndefined();
+
+    // A different client is not blocked by the first client's quota.
+    expect((await request(instanceTwo).get('/api/session')
+      .set('X-Forwarded-For', '203.0.113.11')).status).toBe(201);
+  }, 60000);
+
 });

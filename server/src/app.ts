@@ -24,7 +24,7 @@ import { analyticsQuerySchema } from './modules/analytics/analytics.schema.js';
 import type { AnalyticsRepository } from './modules/analytics/analytics.repository.js';
 import type { GuestSessions } from './security/guest-sessions.js';
 
-type AppDependencies = { repository: TransactionRepository; accounts?: AccountRepository; budgets?: BudgetRepository; recurring?: RecurringRepository; forecast?: ForecastRepository; analytics?: AnalyticsRepository; guestSessions?: GuestSessions; now?: () => Date; clientOrigin: string };
+type AppDependencies = { repository: TransactionRepository; accounts?: AccountRepository; budgets?: BudgetRepository; recurring?: RecurringRepository; forecast?: ForecastRepository; analytics?: AnalyticsRepository; guestSessions?: GuestSessions; now?: () => Date; clientOrigin: string; trustedProxies?: string };
 
 const invalidInput = (error: ZodError) => ({
   error: { code: 'VALIDATION_ERROR', message: 'Invalid request data', issues: z.treeifyError(error) },
@@ -32,9 +32,10 @@ const invalidInput = (error: ZodError) => ({
 
 const notFound = { error: { code: 'NOT_FOUND', message: 'Transaction not found' } };
 
-export function createApp({ repository, accounts, budgets, recurring, forecast, analytics, guestSessions, now = () => new Date(), clientOrigin }: AppDependencies) {
+export function createApp({ repository, accounts, budgets, recurring, forecast, analytics, guestSessions, now = () => new Date(), clientOrigin, trustedProxies }: AppDependencies) {
   const app = express();
   app.disable('x-powered-by');
+  if (trustedProxies && trustedProxies !== 'direct') app.set('trust proxy', trustedProxies);
   app.use(helmet());
   app.use(cors({ origin: clientOrigin, credentials: true }));
   app.use(express.json({ limit: '16kb' }));

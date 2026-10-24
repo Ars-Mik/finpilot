@@ -1,5 +1,5 @@
 import { createApp } from './app.js';
-import { loadConfig } from './config.js';
+import { loadRuntimeConfig } from './config.js';
 import { createPool } from './db/pool.js';
 import { PgTransactionRepository } from './modules/transactions/pg-transaction.repository.js';
 import { PgAccountRepository } from './modules/accounts/pg-account.repository.js';
@@ -10,11 +10,24 @@ import { PgAnalyticsRepository } from './modules/analytics/pg-analytics.reposito
 import { GuestSessions } from './security/guest-sessions.js';
 import { createWorkspacePool } from './security/workspace-db.js';
 
-const config = loadConfig();
+const config = loadRuntimeConfig();
 const pool = createPool(config.APP_DATABASE_URL);
 const workspacePool = createWorkspacePool(pool);
 const guestSessions = new GuestSessions(pool, workspacePool, config.SESSION_SECRET, config.CLIENT_ORIGIN, config.NODE_ENV === 'production');
-const app = createApp({ repository: new PgTransactionRepository(workspacePool), accounts: new PgAccountRepository(workspacePool), budgets: new PgBudgetRepository(workspacePool), recurring: new PgRecurringRepository(workspacePool), forecast: new PgForecastRepository(workspacePool), analytics: new PgAnalyticsRepository(workspacePool), guestSessions, clientOrigin: config.CLIENT_ORIGIN });
+const app = createApp({
+  repository: new PgTransactionRepository(workspacePool),
+  accounts: new PgAccountRepository(workspacePool),
+  budgets: new PgBudgetRepository(workspacePool),
+  recurring: new PgRecurringRepository(workspacePool),
+  forecast: new PgForecastRepository(workspacePool),
+  analytics: new PgAnalyticsRepository(workspacePool),
+  guestSessions,
+  clientOrigin: config.CLIENT_ORIGIN,
+  // With exactOptionalPropertyTypes, omit an optional key instead of passing undefined.
+  ...(config.TRUSTED_PROXY_CIDRS !== undefined
+    ? { trustedProxies: config.TRUSTED_PROXY_CIDRS }
+    : {}),
+});
 
 const server = app.listen(config.PORT, config.HOST, () => {
   console.log(`FinPilot API: http://${config.HOST}:${config.PORT}`);

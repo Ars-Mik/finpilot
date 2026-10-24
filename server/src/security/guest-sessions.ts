@@ -29,8 +29,6 @@ function tokenEquals(a: string, b: string): boolean {
 }
 
 export class GuestSessions {
-  private readonly attempts = new Map<string, { count: number; until: number }>();
-
   constructor(
     private readonly pool: Pool,
     private readonly scopedPool: Pool,
@@ -56,17 +54,27 @@ export class GuestSessions {
     return result.rows[0] ? { workspaceId: result.rows[0].workspaceId, csrfToken: this.csrf(token) } : null;
   }
 
-  private permitCreation(request: Request): boolean {
-    const ip = request.ip ?? 'unknown';
-    const now = this.now().getTime();
-    if (this.attempts.size > 5000) this.attempts.clear();
-    const bucket = this.attempts.get(ip);
-    if (!bucket || bucket.until < now) {
-      this.attempts.set(ip, { count: 1, until: now + 3600000 });
-      return true;
-    }
-    bucket.count += 1;
-    return bucket.count <= 10;
+  // A single atomic PostgreSQL upsert makes the limit shared by every API
+  // process. The secret-keyed hash avoids storing raw visitor IP addresses.
+  private async permitCreation(request: Request): Promise<boolean> {
+    const address = request.ip ?? 'unknown';
+    const key = createHmac('sha256', this.secret)
+      .update(`finpilot-creation-limit:${address}`).digest('hex');
+    const result = await this.pool.query<{ attempts: number }>(
+      `INSERT INTO guest_session_rate_limits (client_key, window_start, attempts)
+       VALUES ($1, NOW(), 1)
+       ON CONFLICT (client_key) DO UPDATE
+       SET window_start = CASE
+             WHEN guest_session_rate_limits.window_start <= NOW() - INTERVAL '1 hour'
+             THEN NOW() ELSE guest_session_rate_limits.window_start END,
+           attempts = CASE
+             WHEN guest_session_rate_limits.window_start <= NOW() - INTERVAL '1 hour'
+             THEN 1 ELSE guest_session_rate_limits.attempts + 1 END
+       WHERE guest_session_rate_limits.window_start <= NOW() - INTERVAL '1 hour'
+          OR guest_session_rate_limits.attempts < 10
+       RETURNING attempts`, [key],
+    );
+    return result.rowCount === 1;
   }
 
   readonly bootstrap: RequestHandler = async (request, response) => {
@@ -80,7 +88,8 @@ export class GuestSessions {
       response.json({ data: { csrfToken: existing.csrfToken, mode: 'guest' } });
       return;
     }
-    if (!this.permitCreation(request)) {
+    if (!await this.permitCreation(request)) {
+      response.setHeader('Retry-After', '3600');
       response.status(429).json({ error: { code: 'RATE_LIMIT', message: 'Too many demo sessions from this address' } });
       return;
     }

@@ -1,11 +1,15 @@
-import { loadConfig } from '../config.js';
+import { loadAdminConfig } from '../config.js';
 import { createPool } from './pool.js';
 
 // Execute periodically in production as a separate administrative maintenance
 // job (e.g. hourly). Never expose this operation as an HTTP endpoint.
-const pool = createPool(loadConfig().DATABASE_URL);
+const pool = createPool(loadAdminConfig().DATABASE_URL);
 
 try {
+  // Rate buckets contain HMACs, not raw IPs. Expired keys are safe to delete.
+  const oldBuckets = await pool.query(
+    "DELETE FROM guest_session_rate_limits WHERE window_start < NOW() - INTERVAL '2 hours'",
+  );
   let removed = 0;
   for (;;) {
     const client = await pool.connect();
@@ -34,6 +38,7 @@ try {
     }
   }
   console.log(`Expired guest workspaces removed: ${removed}`);
+  console.log(`Expired rate-limit buckets removed: ${oldBuckets.rowCount ?? 0}`);
 } catch (error) {
   console.error('Guest cleanup failed:', error);
   process.exitCode = 1;

@@ -2,11 +2,11 @@ import { createHash } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { loadConfig } from '../config.js';
+import { loadAdminConfig } from '../config.js';
 import { createPool } from './pool.js';
 
 const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), '../../migrations');
-const config = loadConfig();
+const config = loadAdminConfig();
 const pool = createPool(config.DATABASE_URL);
 
 async function migrate(): Promise<void> {
@@ -66,6 +66,7 @@ async function migrate(): Promise<void> {
     await client.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON
       accounts, transactions, account_transfers, monthly_budgets, recurring_rules TO ${roleIdent}`);
     await client.query(`GRANT SELECT, INSERT ON workspaces, guest_sessions TO ${roleIdent}`);
+    await client.query(`GRANT SELECT, INSERT, UPDATE ON guest_session_rate_limits TO ${roleIdent}`);
     const permission = await client.query<{ rolsuper: boolean; rolbypassrls: boolean }>(
       'SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = $1', [role],
     );
