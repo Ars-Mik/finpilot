@@ -14,6 +14,8 @@ function responseFor(url: URL, method: string, body: unknown) {
   const path = url.pathname;
   const today = new Date().toISOString().slice(0, 10);
   const currentMonth = today.slice(0, 7);
+  if (path === '/api/session') return { data: { csrfToken: 'a'.repeat(64), mode: 'guest' } };
+  if (path === '/api/demo/reset') return { data: { reset: true } };
   if (path === '/api/accounts') return { data: [{ id: ACCOUNT_ID, name: 'Основной счёт', kind: 'checking', openingBalanceCents: 0, balanceCents: 10000000 }] };
   if (path === '/api/transfers') return { data: [] };
   if (path === '/api/transactions/overview') {
@@ -129,4 +131,17 @@ test('mobile navigation can be opened and closed', async ({ page }) => {
   await expect(page.getByRole('navigation', { name: 'Основная навигация' })).toBeVisible();
   await page.getByRole('navigation', { name: 'Основная навигация' }).getByRole('link', { name: 'Счета' }).click();
   await expect(page.getByRole('heading', { name: 'Счета', level: 1 })).toBeVisible();
+});
+
+
+test('demo reset uses the guest session CSRF token', async ({ page }) => {
+  const seen: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().includes('/api/demo/reset')) seen.push(request.headers()['x-finpilot-csrf'] ?? '');
+  });
+  page.on('dialog', (dialog) => { void dialog.accept(); });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Загрузить демоданные' }).click();
+  await expect.poll(() => seen.length).toBe(1);
+  expect(seen[0]).toBe('a'.repeat(64));
 });

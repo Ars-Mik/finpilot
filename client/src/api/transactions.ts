@@ -1,7 +1,6 @@
 import type { Transaction, TransactionInput } from '../types/finance';
 
-const API_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:3001').replace(/\/$/, '');
-const RESET_PAGE_LIMIT = 100;
+const API_URL = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
 
 type ApiErrorResponse = { error?: { code?: string; message?: string } };
 type ApiItemResponse = { data: Transaction };
@@ -39,32 +38,61 @@ export class ApiError extends Error {
   }
 }
 
+type GuestSessionResponse = { data: { csrfToken: string; mode: 'guest' } };
+let guestSession: Promise<string> | null = null;
+
+async function ensureGuestSession(): Promise<string> {
+  if (!guestSession) {
+    guestSession = (async () => {
+      const response = await fetch(`${API_URL}/api/session`, {
+        credentials: 'include', headers: { Accept: 'application/json' },
+      });
+      if (!response.ok) throw new ApiError('Не удалось открыть гостевую сессию.', response.status);
+      const result = await response.json() as GuestSessionResponse;
+      if (!/^[a-f0-9]{64}$/.test(result.data?.csrfToken ?? '')) {
+        throw new ApiError('Сервер вернул некорректную гостевую сессию.');
+      }
+      return result.data.csrfToken;
+    })().catch((error: unknown) => {
+      guestSession = null;
+      throw error;
+    });
+  }
+  return guestSession;
+}
+
 export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   let response: Response;
   try {
+    const csrfToken = await ensureGuestSession();
+    const isMutation = !['GET', 'HEAD'].includes((options.method ?? 'GET').toUpperCase());
     response = await fetch(`${API_URL}${path}`, {
       ...options,
+      credentials: 'include',
       headers: {
         Accept: 'application/json',
         ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+        ...(isMutation ? { 'X-FinPilot-CSRF': csrfToken } : {}),
         ...options.headers,
       },
     });
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw error;
+    if (error instanceof ApiError) throw error;
     throw new ApiError('Нет соединения с API. Проверь, что backend запущен на порту 3001.');
   }
 
   if (!response.ok) {
     const body: ApiErrorResponse | null = await response.json().catch(() => null);
-    const message = body?.error?.code === 'VALIDATION_ERROR'
-      ? 'Данные операции не прошли проверку. Проверь введённые значения.'
-      : body?.error?.code === 'NOT_FOUND'
-        ? 'Операция не найдена. Обнови список и попробуй ещё раз.'
-        : `Ошибка API (${response.status}). ${body?.error?.message ?? 'Повтори попытку позже.'}`;
+    const message = response.status === 401
+      ? 'Гостевая сессия завершилась. Обнови страницу.'
+      : body?.error?.code === 'VALIDATION_ERROR'
+        ? 'Данные операции не прошли проверку. Проверь введённые значения.'
+        : body?.error?.code === 'NOT_FOUND'
+          ? 'Операция не найдена. Обнови список и попробуй ещё раз.'
+          : `Ошибка API (${response.status}). ${body?.error?.message ?? 'Повтори попытку позже.'}`;
     throw new ApiError(message, response.status);
   }
-
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
@@ -109,17 +137,7 @@ export async function removeTransaction(id: string): Promise<void> {
   await request<void>(`/api/transactions/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
-// Use only with a local development database. Demo reset is not atomic.
-export async function resetDemoTransactions(data: readonly TransactionInput[]): Promise<void> {
-  const all: Transaction[] = [];
-  let page = 1;
-  for (;;) {
-    const current = await getTransactionPage({ page, limit: RESET_PAGE_LIMIT });
-    all.push(...current.data);
-    if (all.length >= current.meta.total) break;
-    if (current.data.length === 0) throw new ApiError('Не удалось загрузить все операции для сброса.');
-    page += 1;
-  }
-  for (const transaction of all) await removeTransaction(transaction.id);
-  for (const transaction of data) await createTransaction(transaction);
+// The server resets ONLY the current guest workspace in a single transaction.
+export async function resetDemoTransactions(): Promise<void> {
+  await request<{ data: { reset: boolean } }>('/api/demo/reset', { method: 'POST' });
 }

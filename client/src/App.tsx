@@ -3,7 +3,6 @@ import { AlertCircle, ArrowLeftRight, ChartNoAxesCombined, LayoutDashboard, Land
 import { BrowserRouter, NavLink, Navigate, Route, Routes, useLocation } from 'react-router';
 import { createTransaction, removeTransaction, resetDemoTransactions, updateTransaction } from './api/transactions';
 import TransactionForm from './components/TransactionForm';
-import { createDemoTransactions } from './data/demoTransactions';
 import DashboardPage from './pages/DashboardPage';
 import AccountsPage from './pages/AccountsPage';
 import BudgetsPage from './pages/BudgetsPage';
@@ -68,15 +67,11 @@ function AppContent() {
   }
 
   async function handleResetDemo() {
-    if (!window.confirm('Удалить все операции из локальной базы и загрузить демонстрационные данные?')) return;
-    const demo = createDemoTransactions().map(({ title, type, category, date, amountCents }) => ({
-      title, type, category, date, amountCents,
-    }));
+    if (!window.confirm('Вернуть исходные демонстрационные данные в ТВОЕЙ гостевой сессии? Все изменения этой сессии будут удалены.')) return;
     try {
-      await mutate(() => resetDemoTransactions(demo));
+      await mutate(() => resetDemoTransactions());
     } catch {
-      // The database might contain partially replaced data; refresh both pages.
-      setRevision((value) => value + 1);
+      // Current workspace is not modified if the server rolls back.
     }
   }
 
@@ -115,8 +110,8 @@ function AppContent() {
           ))}
         </nav>
         <div className="sidebar__bottom">
-          <div className="privacy-note"><ShieldCheck size={21} /><div><strong>Локальная разработка</strong><span>Операции хранятся в PostgreSQL. Авторизация пока не подключена.</span></div></div>
-          {import.meta.env.DEV && (
+          <div className="privacy-note"><ShieldCheck size={21} /><div><strong>Гостевой деморежим</strong><span>Данные изолированы по сессиям. Для реальных финансов требуется авторизация.</span></div></div>
+          {(
             <button className="sidebar__reset" type="button" disabled={isBusy} onClick={() => { void handleResetDemo(); }}>
               <RotateCcw size={16} /> {isBusy ? 'Подожди…' : 'Загрузить демоданные'}
             </button>
@@ -150,7 +145,7 @@ function AppContent() {
             <Route path="/transactions" element={<TransactionsPage revision={revision} onDelete={handleDelete} onEdit={setFormTransaction} isBusy={isBusy} />} />
             <Route path="/accounts" element={<AccountsPage revision={revision} />} />
             <Route path="/budgets" element={<BudgetsPage revision={revision} />} />
-            <Route path="/recurring" element={<RecurringPage />} />
+            <Route path="/recurring" element={<RecurringPage key={revision} />} />
             <Route path="/forecast" element={<ForecastPage key={revision} />} />
             <Route path="/analytics" element={<AnalyticsPage revision={revision} />} />
             <Route path="*" element={<Navigate to="/" replace />} />

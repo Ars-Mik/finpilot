@@ -22,8 +22,9 @@ import { buildForecast, forecastEndDate, forecastScenarioIsValid } from './modul
 import type { ForecastRepository } from './modules/forecast/forecast.repository.js';
 import { analyticsQuerySchema } from './modules/analytics/analytics.schema.js';
 import type { AnalyticsRepository } from './modules/analytics/analytics.repository.js';
+import type { GuestSessions } from './security/guest-sessions.js';
 
-type AppDependencies = { repository: TransactionRepository; accounts?: AccountRepository; budgets?: BudgetRepository; recurring?: RecurringRepository; forecast?: ForecastRepository; analytics?: AnalyticsRepository; now?: () => Date; clientOrigin: string };
+type AppDependencies = { repository: TransactionRepository; accounts?: AccountRepository; budgets?: BudgetRepository; recurring?: RecurringRepository; forecast?: ForecastRepository; analytics?: AnalyticsRepository; guestSessions?: GuestSessions; now?: () => Date; clientOrigin: string };
 
 const invalidInput = (error: ZodError) => ({
   error: { code: 'VALIDATION_ERROR', message: 'Invalid request data', issues: z.treeifyError(error) },
@@ -31,16 +32,22 @@ const invalidInput = (error: ZodError) => ({
 
 const notFound = { error: { code: 'NOT_FOUND', message: 'Transaction not found' } };
 
-export function createApp({ repository, accounts, budgets, recurring, forecast, analytics, now = () => new Date(), clientOrigin }: AppDependencies) {
+export function createApp({ repository, accounts, budgets, recurring, forecast, analytics, guestSessions, now = () => new Date(), clientOrigin }: AppDependencies) {
   const app = express();
   app.disable('x-powered-by');
   app.use(helmet());
-  app.use(cors({ origin: clientOrigin }));
+  app.use(cors({ origin: clientOrigin, credentials: true }));
   app.use(express.json({ limit: '16kb' }));
 
   app.get('/api/health', (_request: Request, response: Response) => {
     response.json({ status: 'ok' });
   });
+
+  if (guestSessions) {
+    app.get('/api/session', guestSessions.bootstrap);
+    app.use('/api', guestSessions.requireSession);
+    app.post('/api/demo/reset', guestSessions.reset);
+  }
 
   if (accounts) {
     app.get('/api/accounts', async (_request: Request, response: Response) => {
