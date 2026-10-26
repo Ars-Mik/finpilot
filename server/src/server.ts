@@ -9,6 +9,7 @@ import { PgForecastRepository } from './modules/forecast/pg-forecast.repository.
 import { PgAnalyticsRepository } from './modules/analytics/pg-analytics.repository.js';
 import { GuestSessions } from './security/guest-sessions.js';
 import { PgGoalRepository } from './modules/goals/pg-goal.repository.js';
+import { PgSavedScenarioRepository } from './modules/forecast/pg-saved-scenario.repository.js';
 import { createWorkspacePool } from './security/workspace-db.js';
 
 const config = loadRuntimeConfig();
@@ -21,6 +22,7 @@ const app = createApp({
   budgets: new PgBudgetRepository(workspacePool),
   recurring: new PgRecurringRepository(workspacePool),
   forecast: new PgForecastRepository(workspacePool),
+  savedScenarios: new PgSavedScenarioRepository(workspacePool),
   analytics: new PgAnalyticsRepository(workspacePool),
   goals: new PgGoalRepository(workspacePool),
   guestSessions,

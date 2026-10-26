@@ -38,7 +38,7 @@ try {
     & npm run build
     if ($LASTEXITCODE -ne 0) { throw 'Backend TypeScript build failed.' }
     Write-Host '[QA] Running REAL PostgreSQL/RLS integration tests...'
-    & npm test -- tests/guest-isolation.test.ts tests/recurring-worker.test.ts tests/goals.integration.test.ts
+    & npm test -- tests/guest-isolation.test.ts tests/recurring-worker.test.ts tests/goals.integration.test.ts tests/saved-scenarios.integration.test.ts
     if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL integration tests failed.' }
     Write-Host '[QA] Running the recurring command with the restricted role...'
     & npm run recurring:apply

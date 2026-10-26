@@ -16,7 +16,7 @@ import { PgGoalRepository } from '../src/modules/goals/pg-goal.repository.js';
 
 const origin = 'http://localhost:5173';
 const integrationUrl = process.env.INTEGRATION_DATABASE_URL;
-const protectedTables = ['accounts', 'transactions', 'account_transfers', 'monthly_budgets', 'recurring_rules', 'savings_goals', 'goal_allocations'] as const;
+const protectedTables = ['accounts', 'transactions', 'account_transfers', 'monthly_budgets', 'recurring_rules', 'savings_goals', 'goal_allocations', 'forecast_scenarios'] as const;
 
 // Locally this suite is optional, because it creates real demo workspaces.
 // In CI it MUST run against an isolated PostgreSQL service: a silent skip
@@ -51,7 +51,7 @@ describe.skipIf(!integrationUrl)('guest isolation (real PostgreSQL)', () => {
 
   afterAll(async () => { await pool?.end(); });
 
-  it('uses a nonprivileged role and enforces RLS on all seven financial tables', async () => {
+  it('uses a nonprivileged role and enforces RLS on all eight financial tables', async () => {
     const role = await pool.query<{
       rolsuper: boolean; rolbypassrls: boolean; rolcreaterole: boolean; rolcreatedb: boolean;
     }>(

@@ -23,7 +23,7 @@ try {
       if (!id) { await client.query('COMMIT'); break; }
       // Explicit workspace filters are essential because this connection is
       // privileged for migrations and therefore may bypass RLS.
-      for (const table of ['goal_allocations', 'savings_goals', 'transactions', 'account_transfers', 'recurring_rules', 'monthly_budgets', 'accounts']) {
+      for (const table of ['forecast_scenarios', 'goal_allocations', 'savings_goals', 'transactions', 'account_transfers', 'recurring_rules', 'monthly_budgets', 'accounts']) {
         await client.query(`DELETE FROM ${table} WHERE workspace_id = $1`, [id]);
       }
       await client.query('DELETE FROM guest_sessions WHERE workspace_id = $1', [id]);

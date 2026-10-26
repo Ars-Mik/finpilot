@@ -17,16 +17,17 @@ import { DuplicateBudgetError, type BudgetRepository } from './modules/budgets/b
 import { recurringIdSchema, recurringInputSchema, recurringQuerySchema, recurringToggleSchema } from './modules/recurring/recurring.schema.js';
 import { utcToday } from './modules/recurring/schedule.js';
 import type { RecurringRepository } from './modules/recurring/recurring.repository.js';
-import { forecastRequestSchema } from './modules/forecast/forecast.schema.js';
+import { forecastRequestSchema, savedScenarioInputSchema } from './modules/forecast/forecast.schema.js';
 import { buildForecast, forecastEndDate, forecastScenarioIsValid } from './modules/forecast/forecast.service.js';
 import type { ForecastRepository } from './modules/forecast/forecast.repository.js';
+import { ScenarioLimitError, type SavedScenarioInput, type SavedScenarioRepository } from './modules/forecast/saved-scenario.repository.js';
 import { analyticsQuerySchema } from './modules/analytics/analytics.schema.js';
 import type { AnalyticsRepository } from './modules/analytics/analytics.repository.js';
 import type { GuestSessions } from './security/guest-sessions.js';
 import { goalIdSchema, goalCreateSchema, goalPatchSchema, allocationInputSchema } from './modules/goals/goal.schema.js';
 import { GoalConflictError, GoalMissingError, type GoalRepository } from './modules/goals/goal.repository.js';
 
-type AppDependencies = { repository: TransactionRepository; accounts?: AccountRepository; budgets?: BudgetRepository; recurring?: RecurringRepository; forecast?: ForecastRepository; analytics?: AnalyticsRepository; goals?: GoalRepository; guestSessions?: GuestSessions; now?: () => Date; clientOrigin: string; trustedProxies?: string };
+type AppDependencies = { repository: TransactionRepository; accounts?: AccountRepository; budgets?: BudgetRepository; recurring?: RecurringRepository; forecast?: ForecastRepository; savedScenarios?: SavedScenarioRepository; analytics?: AnalyticsRepository; goals?: GoalRepository; guestSessions?: GuestSessions; now?: () => Date; clientOrigin: string; trustedProxies?: string };
 
 const invalidInput = (error: ZodError) => ({
   error: { code: 'VALIDATION_ERROR', message: 'Invalid request data', issues: z.treeifyError(error) },
@@ -34,7 +35,7 @@ const invalidInput = (error: ZodError) => ({
 
 const notFound = { error: { code: 'NOT_FOUND', message: 'Transaction not found' } };
 
-export function createApp({ repository, accounts, budgets, recurring, forecast, analytics, goals, guestSessions, now = () => new Date(), clientOrigin, trustedProxies }: AppDependencies) {
+export function createApp({ repository, accounts, budgets, recurring, forecast, savedScenarios, analytics, goals, guestSessions, now = () => new Date(), clientOrigin, trustedProxies }: AppDependencies) {
   const app = express();
   app.disable('x-powered-by');
   if (trustedProxies && trustedProxies !== 'direct') app.set('trust proxy', trustedProxies);
@@ -169,6 +170,50 @@ export function createApp({ repository, accounts, budgets, recurring, forecast, 
     });
   }
 
+  if (savedScenarios) {
+    const isValid = (data: SavedScenarioInput) => forecastScenarioIsValid(data, utcToday(now()));
+
+    app.get('/api/forecast/scenarios', async (_request: Request, response: Response) => {
+      response.json({ data: await savedScenarios.list() });
+    });
+    app.get('/api/forecast/scenarios/:id', async (request: Request, response: Response) => {
+      const id = z.uuid().safeParse(request.params.id);
+      if (!id.success) { response.status(422).json(invalidInput(id.error)); return; }
+      const saved = await savedScenarios.find(id.data);
+      if (!saved) { response.status(404).json({ error: { code: 'NOT_FOUND', message: 'Scenario not found' } }); return; }
+      response.json({ data: saved });
+    });
+    app.post('/api/forecast/scenarios', async (request: Request, response: Response) => {
+      const parsed = savedScenarioInputSchema.safeParse(request.body);
+      if (!parsed.success) { response.status(422).json(invalidInput(parsed.error)); return; }
+      if (!isValid(parsed.data)) {
+        response.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'Scenario dates must be within the future forecast period' } }); return;
+      }
+      const saved = await savedScenarios.create(parsed.data);
+      response.status(201).location(`/api/forecast/scenarios/${saved.id}`).json({ data: saved });
+    });
+    app.put('/api/forecast/scenarios/:id', async (request: Request, response: Response) => {
+      const id = z.uuid().safeParse(request.params.id);
+      const parsed = savedScenarioInputSchema.safeParse(request.body);
+      if (!id.success) { response.status(422).json(invalidInput(id.error)); return; }
+      if (!parsed.success) { response.status(422).json(invalidInput(parsed.error)); return; }
+      if (!isValid(parsed.data)) {
+        response.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'Scenario dates must be within the future forecast period' } }); return;
+      }
+      const saved = await savedScenarios.update(id.data, parsed.data);
+      if (!saved) { response.status(404).json({ error: { code: 'NOT_FOUND', message: 'Scenario not found' } }); return; }
+      response.json({ data: saved });
+    });
+    app.delete('/api/forecast/scenarios/:id', async (request: Request, response: Response) => {
+      const id = z.uuid().safeParse(request.params.id);
+      if (!id.success) { response.status(422).json(invalidInput(id.error)); return; }
+      if (!await savedScenarios.remove(id.data)) {
+        response.status(404).json({ error: { code: 'NOT_FOUND', message: 'Scenario not found' } }); return;
+      }
+      response.status(204).send();
+    });
+  }
+
   if (goals) {
     app.get('/api/goals', async (_request: Request, response: Response) => {
       response.json({ data: await goals.list() });
@@ -287,6 +332,10 @@ export function createApp({ repository, accounts, budgets, recurring, forecast, 
   const errorHandler: ErrorRequestHandler = (error: unknown, _request, response, _next) => {
     if (error instanceof SyntaxError && 'body' in error) {
       response.status(400).json({ error: { code: 'INVALID_JSON', message: 'Malformed JSON body' } });
+      return;
+    }
+    if (error instanceof ScenarioLimitError) {
+      response.status(409).json({ error: { code: 'SCENARIO_LIMIT', message: error.message } });
       return;
     }
     if (error instanceof GoalMissingError) {

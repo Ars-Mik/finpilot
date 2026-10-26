@@ -37,7 +37,10 @@ describe.skipIf(!integrationUrl)('goals (real PostgreSQL)', () => {
     expect(sessionB.status).toBe(201);
     const csrfA = sessionA.body.data.csrfToken as string;
     const csrfB = sessionB.body.data.csrfToken as string;
-    const savingsA = (await a.get('/api/accounts')).body.data[1];
+    const savingsA = (await a.get('/api/accounts')).body.data.find(
+      (account: { kind: string }) => account.kind === 'savings',
+    );
+    expect(savingsA).toBeDefined();
     const balanceBefore = savingsA.balanceCents as number;
     const makeGoal = async (name: string) => a.post('/api/goals').set('X-FinPilot-CSRF', csrfA)
       .send({ name, accountId: savingsA.id, targetCents: 20000000, dueDate: '2027-08-01' });
@@ -54,7 +57,12 @@ describe.skipIf(!integrationUrl)('goals (real PostgreSQL)', () => {
       .send({ action: 'reserve', amountCents: 6000000 });
     expect(reserve.status).toBe(201);
     expect(reserve.body.data.reservedCents).toBe(6000000);
-    expect((await a.get('/api/accounts')).body.data[1].balanceCents).toBe(balanceBefore);
+    const available = reserve.body.data.accountBalanceCents - reserve.body.data.accountReservedCents;
+    expect(available).toBeGreaterThanOrEqual(4000000);
+    expect(available).toBeLessThan(8000000);
+    expect((await a.get('/api/accounts')).body.data.find(
+      (account: { id: string }) => account.id === savingsA.id,
+    ).balanceCents).toBe(balanceBefore);
     expect((await a.post(`/api/goals/${id}/allocations`).set('X-FinPilot-CSRF', csrfA)
       .send({ action: 'release', amountCents: 7000000 })).status).toBe(409);
     const [g2, g3] = await Promise.all([makeGoal('Цель B'), makeGoal('Цель C')]);
@@ -83,7 +91,10 @@ describe.skipIf(!integrationUrl)('goals (real PostgreSQL)', () => {
     const session = await agent.get('/api/session');
     expect(session.status).toBe(201);
     const csrf = session.body.data.csrfToken as string;
-    const savings = (await agent.get('/api/accounts')).body.data[1];
+    const savings = (await agent.get('/api/accounts')).body.data.find(
+      (account: { kind: string }) => account.kind === 'savings',
+    );
+    expect(savings).toBeDefined();
     const create = async (name: string) => agent.post('/api/goals')
       .set('X-FinPilot-CSRF', csrf)
       .send({ name, accountId: savings.id, targetCents: 20000000, dueDate: '2027-08-01' });

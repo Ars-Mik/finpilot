@@ -24,11 +24,20 @@ const changeSchema = z.strictObject({
   date: dateSchema,
 });
 
+export const forecastPlanSchema = z.strictObject({
+  kind: z.literal('plan'), title: titleSchema, changes: z.array(changeSchema).min(1).max(5),
+});
+
+export const savedScenarioInputSchema = z.strictObject({
+  months: z.union([z.literal(3), z.literal(6), z.literal(12)]),
+  scenario: forecastPlanSchema,
+});
+
 export const forecastRequestSchema = z.strictObject({
   months: z.union([z.literal(3), z.literal(6), z.literal(12)]),
   scenario: z.union([
     purchaseSchema,
-    z.strictObject({ kind: z.literal('plan'), title: titleSchema, changes: z.array(changeSchema).min(1).max(5) }),
+    forecastPlanSchema,
   ]).nullable(),
 });
 
