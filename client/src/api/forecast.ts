@@ -1,7 +1,16 @@
 import { request } from './transactions';
 
 export type ForecastMonths = 3 | 6 | 12;
-export type ForecastScenario = { title: string; amountCents: number; date: string };
+export type ForecastChange = {
+  title: string;
+  type: 'income' | 'expense' | 'saving';
+  frequency: 'once' | 'monthly';
+  amountCents: number;
+  date: string;
+};
+export type ForecastScenario =
+  | { title: string; amountCents: number; date: string }
+  | { kind: 'plan'; title: string; changes: ForecastChange[] };
 export type ForecastMonth = {
   month: string;
   baselineCents: number;

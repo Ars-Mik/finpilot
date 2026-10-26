@@ -3,7 +3,7 @@ import type {
   ForecastMonth, ForecastPath, ForecastRequest, ForecastResult, ForecastSnapshot,
 } from './forecast.schema.js';
 
-type Event = { date: string; type: 'income' | 'expense'; amountCents: number };
+type Event = { date: string; type: 'income' | 'expense' | 'saving'; amountCents: number };
 
 function iso(date: Date): string { return date.toISOString().slice(0, 10); }
 function nextDay(date: string): string { return iso(new Date(Date.parse(`${date}T00:00:00Z`) + 86_400_000)); }
@@ -22,7 +22,23 @@ export function forecastEndDate(asOf: string, months: ForecastRequest['months'])
 
 export function forecastScenarioIsValid(request: ForecastRequest, asOf: string): boolean {
   if (!request.scenario) return true;
-  return request.scenario.date > asOf && request.scenario.date <= forecastEndDate(asOf, request.months);
+  const changes = 'kind' in request.scenario ? request.scenario.changes : [request.scenario];
+  const through = forecastEndDate(asOf, request.months);
+  return changes.every((change) => change.date > asOf && change.date <= through);
+}
+
+function virtualEvents(request: ForecastRequest, through: string): Event[] {
+  if (!request.scenario) return [];
+  if (!('kind' in request.scenario)) {
+    const { date, amountCents } = request.scenario;
+    return [{ date, type: 'expense', amountCents }];
+  }
+  return request.scenario.changes.flatMap((change) => {
+    const dates = change.frequency === 'monthly'
+      ? occurrencesBetween({ frequency: 'monthly', startDate: change.date, endDate: null }, change.date, through)
+      : [change.date];
+    return dates.map((date) => ({ date, type: change.type, amountCents: change.amountCents }));
+  });
 }
 
 export function buildForecast(snapshot: ForecastSnapshot, request: ForecastRequest, asOf: string): ForecastResult {
@@ -52,12 +68,11 @@ export function buildForecast(snapshot: ForecastSnapshot, request: ForecastReque
     lowestBalanceCents: scenarioBalance, firstNegativeDate: scenarioBalance < 0 ? asOf : null,
   };
   const months: ForecastMonth[] = [];
-  const purchase = request.scenario;
-  const dateSet = new Set(events.map((event) => event.date));
-  if (purchase) dateSet.add(purchase.date);
+  const virtual = virtualEvents(request, through).sort((a, b) => a.date.localeCompare(b.date));
+  const dateSet = new Set([...events, ...virtual].map((event) => event.date));
   const dates = [...dateSet].sort();
   let eventIndex = 0;
-  let purchaseApplied = false;
+  let virtualIndex = 0;
   let dateIndex = 0;
   let monthCursor = new Date(`${asOf.slice(0, 7)}-01T00:00:00Z`);
 
@@ -79,9 +94,10 @@ export function buildForecast(snapshot: ForecastSnapshot, request: ForecastReque
         else expenseCents = safeAdd(expenseCents, event.amountCents);
         eventIndex += 1;
       }
-      if (purchase && !purchaseApplied && purchase.date === date) {
-        scenarioBalance = safeAdd(scenarioBalance, -purchase.amountCents);
-        purchaseApplied = true;
+      while (virtualIndex < virtual.length && virtual[virtualIndex]!.date === date) {
+        const change = virtual[virtualIndex]!;
+        scenarioBalance = safeAdd(scenarioBalance, change.type === 'expense' ? -change.amountCents : change.amountCents);
+        virtualIndex += 1;
       }
       baseline.lowestBalanceCents = Math.min(baseline.lowestBalanceCents, balance);
       withScenario.lowestBalanceCents = Math.min(withScenario.lowestBalanceCents, scenarioBalance);
@@ -92,6 +108,6 @@ export function buildForecast(snapshot: ForecastSnapshot, request: ForecastReque
     months.push({ month, baselineCents: balance, scenarioCents: scenarioBalance, incomeCents, expenseCents });
   }
 
-  return { asOf, through, currentBalanceCents, plannedEvents: events.length, scenario: purchase,
+  return { asOf, through, currentBalanceCents, plannedEvents: events.length, scenario: request.scenario,
     baseline, withScenario, months };
 }

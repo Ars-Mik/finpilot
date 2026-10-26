@@ -375,3 +375,13 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 @media (max-width: 900px) { .analytics-grid { grid-template-columns: 1fr; } }
 @media (max-width: 700px) { .analytics-heading { align-items: stretch; flex-direction: column; } .analytics-filters { align-items: stretch; } }
 @media (max-width: 460px) { .analytics-summary { grid-template-columns: 1fr; } .analytics-stat { padding: 18px; } .analytics-filters { flex-direction: column; } .analytics-filters .period-control input { width: 100%; } }
+
+.forecast-changes { margin-top: 22px; }
+.forecast-changes h3 { font-size: 13px; margin: 0 0 10px; color: var(--ink); }
+.forecast-changes ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.forecast-changes li { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid var(--line); border-radius: 10px; padding: 11px; }
+.forecast-changes li div { min-width: 0; display: grid; gap: 4px; }
+.forecast-changes li strong { overflow-wrap: anywhere; font-size: 12px; color: var(--ink); }
+.forecast-changes li small { font-size: 11px; color: var(--muted); }
+.forecast-changes li button { cursor: pointer; background: transparent; border: 0; color: var(--primary); font-size: 12px; }
+.forecast-changes li button:disabled { opacity: .5; cursor: default; }

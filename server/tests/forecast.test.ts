@@ -115,3 +115,72 @@ describe('cash flow forecasts', () => {
     expect(reads).toBe(1);
   });
 });
+
+describe('combined forecast plans', () => {
+  it('adds a one-time expense and monthly income without changing the baseline', () => {
+    const plan = { kind: 'plan' as const, title: 'Новый бюджет', changes: [
+      { title: 'Подработка', type: 'income' as const, frequency: 'monthly' as const, amountCents: 100_000, date: '2026-10-31' },
+      { title: 'Техника', type: 'expense' as const, frequency: 'once' as const, amountCents: 250_000, date: '2026-11-10' },
+    ] };
+    const result = buildForecast(base, { months: 3, scenario: plan }, today);
+    expect(result.months.map((item) => item.baselineCents)).toEqual([5_000_000, 5_000_000, 5_000_000]);
+    expect(result.months.map((item) => item.scenarioCents)).toEqual([5_100_000, 4_950_000, 5_050_000]);
+    expect(result.months.map((item) => [item.incomeCents, item.expenseCents])).toEqual([[0, 0], [0, 0], [0, 0]]);
+    expect(result.plannedEvents).toBe(0);
+    expect(result.scenario).toEqual(plan);
+    expect(base.futureTransactions).toHaveLength(0);
+  });
+
+  it('models reduced expenses as virtual savings', () => {
+    const scenario = { kind: 'plan' as const, title: 'Экономия', changes: [
+      { title: 'Подписки', type: 'saving' as const, frequency: 'monthly' as const, amountCents: 2_000, date: '2026-11-01' },
+    ] };
+    const result = buildForecast(base, { months: 3, scenario }, today);
+    expect(result.months.map((month) => month.scenarioCents)).toEqual([5_000_000, 5_002_000, 5_004_000]);
+    expect(result.months[2]?.expenseCents).toBe(0);
+  });
+
+  it('anchors the 31st on the last day of shorter months', () => {
+    const scenario = { kind: 'plan' as const, title: 'Аренда', changes: [
+      { title: 'Платёж', type: 'expense' as const, frequency: 'monthly' as const, amountCents: 1_000, date: '2028-01-31' },
+    ] };
+    const result = buildForecast(base, { months: 3, scenario }, '2028-01-15');
+    expect(result.months.map((item) => item.scenarioCents)).toEqual([4_999_000, 4_998_000, 4_997_000]);
+  });
+
+  it('reports a temporary shortfall caused by virtual events', () => {
+    const scenario = { kind: 'plan' as const, title: 'Расход и доход', changes: [
+      { title: 'Счёт', type: 'expense' as const, frequency: 'once' as const, amountCents: 6_000_000, date: '2026-11-05' },
+      { title: 'Поступление', type: 'income' as const, frequency: 'once' as const, amountCents: 7_000_000, date: '2026-11-15' },
+    ] };
+    const result = buildForecast(base, { months: 3, scenario }, today);
+    expect(result.baseline.firstNegativeDate).toBeNull();
+    expect(result.withScenario.firstNegativeDate).toBe('2026-11-05');
+    expect(result.withScenario.lowestBalanceCents).toBe(-1_000_000);
+    expect(result.months[1]?.scenarioCents).toBe(6_000_000);
+  });
+
+  it('rejects invalid and out-of-range plans before reading the database', async () => {
+    let reads = 0;
+    const forecast: ForecastRepository = { async readSnapshot() { reads += 1; return base; } };
+    const app = createApp({ repository: transactions, forecast, now: () => new Date('2026-10-20T12:00:00Z'), clientOrigin: 'http://localhost:5173' });
+    const change = { title: 'Доход', type: 'income', frequency: 'monthly', amountCents: 100_000, date: '2026-11-01' };
+    const scenario = { kind: 'plan', title: 'План', changes: [change] };
+    const ok = await request(app).post('/api/forecast/simulate').send({ months: 3, scenario });
+    expect(ok.status).toBe(200);
+    expect(ok.body.data.months[2].scenarioCents).toBe(5_200_000);
+    for (const bad of [
+      { ...scenario, changes: [] },
+      { ...scenario, changes: Array(6).fill(change) },
+      { ...scenario, changes: [{ ...change, date: '2026-10-20' }] },
+      { ...scenario, changes: [{ ...change, date: '2027-01-01' }] },
+      { ...scenario, changes: [{ ...change, date: '2026-11-31' }] },
+      { ...scenario, changes: [{ ...change, amountCents: -1 }] },
+      { ...scenario, changes: [{ ...change, frequency: 'daily' }] },
+      { ...scenario, changes: [{ ...change, unrelated: true }] },
+    ]) {
+      expect((await request(app).post('/api/forecast/simulate').send({ months: 3, scenario: bad })).status).toBe(422);
+    }
+    expect(reads).toBe(1);
+  });
+});

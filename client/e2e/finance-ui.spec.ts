@@ -43,14 +43,22 @@ function responseFor(url: URL, method: string, body: unknown) {
     } };
   }
   if (path === '/api/forecast/simulate' && method === 'POST') {
-    const input = body as { months: number; scenario: { title: string; amountCents: number; date: string } | null };
+    const input = body as { months: number; scenario: { title: string; amountCents: number; date: string } | { kind: 'plan'; changes: { type: 'income' | 'expense' | 'saving'; frequency: 'once' | 'monthly'; amountCents: number; date: string }[] } | null };
+    const changes = input.scenario ? ('kind' in input.scenario ? input.scenario.changes : [
+      { type: 'expense' as const, frequency: 'once' as const, amountCents: input.scenario.amountCents, date: input.scenario.date },
+    ]) : [];
+    let runningImpact = 0;
     const months = Array.from({ length: input.months }, (_, index) => {
       const date = new Date(`${currentMonth}-01T00:00:00Z`);
       date.setUTCMonth(date.getUTCMonth() + index);
       const month = date.toISOString().slice(0, 7);
-      return { month, baselineCents: 10000000, scenarioCents: 10000000 - (input.scenario?.amountCents ?? 0), incomeCents: 0, expenseCents: 0 };
+      for (const change of changes) {
+        const applies = change.frequency === 'monthly' ? month >= change.date.slice(0, 7) : month === change.date.slice(0, 7);
+        if (applies) runningImpact += (change.type === 'expense' ? -1 : 1) * change.amountCents;
+      }
+      return { month, baselineCents: 10000000, scenarioCents: 10000000 + runningImpact, incomeCents: 0, expenseCents: 0 };
     });
-    return { data: { asOf: today, through: `${months.at(-1)?.month ?? currentMonth}-28`, currentBalanceCents: 10000000, plannedEvents: 0, scenario: input.scenario, baseline: { lowestBalanceCents: 10000000, firstNegativeDate: null }, withScenario: { lowestBalanceCents: 10000000 - (input.scenario?.amountCents ?? 0), firstNegativeDate: null }, months } };
+    return { data: { asOf: today, through: `${months.at(-1)?.month ?? currentMonth}-28`, currentBalanceCents: 10000000, plannedEvents: 0, scenario: input.scenario, baseline: { lowestBalanceCents: 10000000, firstNegativeDate: null }, withScenario: { lowestBalanceCents: Math.min(10000000, ...months.map((entry) => entry.scenarioCents)), firstNegativeDate: null }, months } };
   }
   return { error: { code: 'NOT_FOUND', message: `Missing fixture: ${method} ${path}` } };
 }
@@ -231,4 +239,46 @@ test('goals can be created, funded, edited and archived with CSRF protection', a
   await page.getByRole('button', { name: 'Архив (1)' }).click();
   await expect(page.getByRole('heading', { name: 'Отпуск у моря' })).toBeVisible();
   expect(csrfMutations).toBe(6);
+});
+
+
+test('forecast compares recurring income and one-time expenses without saving transactions', async ({ page }) => {
+  const future = new Date();
+  future.setUTCMonth(future.getUTCMonth() + 1, 5);
+  const changeDate = future.toISOString().slice(0, 10);
+  const requests: unknown[] = [];
+  page.on('request', (request) => {
+    if (request.url().includes('/api/forecast/simulate') && request.method() === 'POST') requests.push(request.postDataJSON());
+  });
+  await page.goto('/forecast');
+  await page.getByLabel('Название', { exact: true }).fill('Подработка');
+  await page.getByLabel('Тип изменения').selectOption('income');
+  await page.getByLabel('Периодичность').selectOption('monthly');
+  await page.getByLabel('Сумма, ₽').fill('10000');
+  await page.getByLabel('Дата первого изменения').fill(changeDate);
+  await page.getByRole('button', { name: 'Добавить в сценарий' }).click();
+  await expect(page.getByText('Добавленные изменения')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Убрать Подработка' })).toBeVisible();
+  await expect(page.getByText('Влияние сценария к концу периода')).toBeVisible();
+  await page.getByLabel('Название', { exact: true }).fill('Ноутбук');
+  await page.getByLabel('Тип изменения').selectOption('expense');
+  await page.getByLabel('Периодичность').selectOption('once');
+  await page.getByLabel('Сумма, ₽').fill('5000');
+  await page.getByLabel('Дата', { exact: true }).fill(changeDate);
+  await page.getByRole('button', { name: 'Добавить в сценарий' }).click();
+  await expect(page.getByRole('button', { name: 'Убрать Ноутбук' })).toBeVisible();
+  expect(requests.some((payload) => {
+    const input = payload as { scenario?: { changes?: unknown[] } };
+    return input.scenario?.changes?.length === 2;
+  })).toBe(true);
+  expect(requests.some((payload) => {
+    const input = payload as { scenario?: { kind?: string; changes?: { type: string; frequency: string }[] } };
+    return input.scenario?.kind === 'plan' && input.scenario.changes?.[0]?.type === 'income'
+      && input.scenario.changes[0]?.frequency === 'monthly';
+  })).toBe(true);
+  await page.getByRole('button', { name: 'Убрать Подработка' }).click();
+  await expect(page.getByRole('button', { name: 'Убрать Ноутбук' })).toBeVisible();
+  await page.getByRole('button', { name: 'Убрать Ноутбук' }).click();
+  await expect(page.getByText('Добавленные изменения')).toHaveCount(0);
+  await expect(page.getByText('Влияние сценария к концу периода')).toHaveCount(0);
 });
