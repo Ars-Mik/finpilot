@@ -103,59 +103,66 @@ export class PgGoalRepository implements GoalRepository {
   }
 
   async allocate(id: string, input: AllocationInput): Promise<Goal> {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      const lookup = await client.query<{ accountId: string }>(
-        'SELECT account_id AS "accountId" FROM savings_goals WHERE id = $1', [id],
-      );
-      const accountId = lookup.rows[0]?.accountId;
-      if (!accountId) throw new GoalMissingError('Goal not found');
-      // Serialize reservations for every goal on this account.
-      const accountLock = await client.query('SELECT id FROM accounts WHERE id = $1 FOR UPDATE', [accountId]);
-      if (!accountLock.rowCount) throw new GoalMissingError('Account not found');
-      const target = await client.query<{ targetCents: string; status: Goal['status'] }>(
-        'SELECT target_cents::text AS "targetCents", status FROM savings_goals WHERE id = $1 FOR UPDATE', [id],
-      );
-      const row = target.rows[0];
-      if (!row) throw new GoalMissingError('Goal not found');
-      const reservedResult = await client.query<{ amount: string }>(
-        'SELECT COALESCE(SUM(delta_cents::numeric), 0)::text AS amount FROM goal_allocations WHERE goal_id = $1', [id],
-      );
-      if (row.status !== 'active') throw new GoalConflictError('Goal is archived');
-      const reserved = safeCents(reservedResult.rows[0]!.amount);
-      const delta = input.action === 'reserve' ? input.amountCents : -input.amountCents;
-      if (reserved + delta < 0 || reserved + delta > safeCents(row.targetCents)) {
-        throw new GoalConflictError('Reservation exceeds goal limits');
-      }
-      if (delta > 0) {
-        const result = await client.query<{ balance: string; allocated: string }>(`
-          SELECT (a.opening_balance_cents::numeric
-              + COALESCE((SELECT SUM(CASE WHEN type = 'income' THEN amount_cents::numeric ELSE -amount_cents::numeric END)
-                   FROM transactions WHERE account_id = a.id), 0)
-              + COALESCE((SELECT SUM(delta) FROM (
-                  SELECT amount_cents::numeric AS delta FROM account_transfers WHERE to_account_id = a.id
-                  UNION ALL SELECT -amount_cents::numeric FROM account_transfers WHERE from_account_id = a.id
-                ) t), 0))::text AS balance,
-            COALESCE((SELECT SUM(ga.delta_cents::numeric) FROM goal_allocations ga
-              JOIN savings_goals g ON g.id = ga.goal_id
-              WHERE g.account_id = a.id AND g.status = 'active'), 0)::text AS allocated
-          FROM accounts a WHERE a.id = $1`, [accountId]);
-        const available = safeCents(result.rows[0]!.balance) - safeCents(result.rows[0]!.allocated);
-        if (delta > available) throw new GoalConflictError('Insufficient unreserved account funds');
-      }
-      await client.query('INSERT INTO goal_allocations (id, goal_id, delta_cents) VALUES ($1, $2, $3)',
-        [randomUUID(), id, delta]);
-      await client.query('COMMIT');
-    } catch (error) {
-      await client.query('ROLLBACK').catch(() => undefined);
-      throw error;
-    } finally { client.release(); }
-    const goal = await this.one(id);
-    if (!goal) throw new Error('Updated goal not found');
-    return goal;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const client = await this.pool.connect();
+      try {
+        await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+        const lookup = await client.query<{ accountId: string }>(
+          'SELECT account_id AS "accountId" FROM savings_goals WHERE id = $1', [id],
+        );
+        const accountId = lookup.rows[0]?.accountId;
+        if (!accountId) throw new GoalMissingError('Goal not found');
+        // Serialize reservations for every goal on this account.
+        const accountLock = await client.query('SELECT id FROM accounts WHERE id = $1 FOR UPDATE', [accountId]);
+        if (!accountLock.rowCount) throw new GoalMissingError('Account not found');
+        const target = await client.query<{ targetCents: string; status: Goal['status'] }>(
+          'SELECT target_cents::text AS "targetCents", status FROM savings_goals WHERE id = $1 FOR UPDATE', [id],
+        );
+        const row = target.rows[0];
+        if (!row) throw new GoalMissingError('Goal not found');
+        const reservedResult = await client.query<{ amount: string }>(
+          'SELECT COALESCE(SUM(delta_cents::numeric), 0)::text AS amount FROM goal_allocations WHERE goal_id = $1', [id],
+        );
+        if (row.status !== 'active') throw new GoalConflictError('Goal is archived');
+        const reserved = safeCents(reservedResult.rows[0]!.amount);
+        const delta = input.action === 'reserve' ? input.amountCents : -input.amountCents;
+        if (reserved + delta < 0 || reserved + delta > safeCents(row.targetCents)) {
+          throw new GoalConflictError('Reservation exceeds goal limits');
+        }
+        if (delta > 0) {
+          const result = await client.query<{ balance: string; allocated: string }>(`
+            SELECT (a.opening_balance_cents::numeric
+                + COALESCE((SELECT SUM(CASE WHEN type = 'income' THEN amount_cents::numeric ELSE -amount_cents::numeric END)
+                     FROM transactions WHERE account_id = a.id), 0)
+                + COALESCE((SELECT SUM(delta) FROM (
+                    SELECT amount_cents::numeric AS delta FROM account_transfers WHERE to_account_id = a.id
+                    UNION ALL SELECT -amount_cents::numeric FROM account_transfers WHERE from_account_id = a.id
+                  ) t), 0))::text AS balance,
+              COALESCE((SELECT SUM(ga.delta_cents::numeric) FROM goal_allocations ga
+                JOIN savings_goals g ON g.id = ga.goal_id
+                WHERE g.account_id = a.id AND g.status = 'active'), 0)::text AS allocated
+            FROM accounts a WHERE a.id = $1`, [accountId]);
+          const available = safeCents(result.rows[0]!.balance) - safeCents(result.rows[0]!.allocated);
+          if (delta > available) throw new GoalConflictError('Insufficient unreserved account funds');
+        }
+        await client.query('INSERT INTO goal_allocations (id, goal_id, delta_cents) VALUES ($1, $2, $3)',
+          [randomUUID(), id, delta]);
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => undefined);
+        const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : null;
+        if (code === '40001' || code === '40P01') {
+          if (attempt < 2) continue;
+          throw new GoalConflictError('Reservation is busy. Please try again');
+        }
+        throw error;
+      } finally { client.release(); }
+      const goal = await this.one(id);
+      if (!goal) throw new Error('Updated goal not found');
+      return goal;
+    }
+    throw new Error('Reservation retry limit exceeded');
   }
-
   async archive(id: string): Promise<boolean> {
     const client = await this.pool.connect();
     try {

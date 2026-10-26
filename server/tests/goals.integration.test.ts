@@ -63,6 +63,12 @@ describe.skipIf(!integrationUrl)('goals (real PostgreSQL)', () => {
     const two = await Promise.all([g2, g3].map((goal) => a.post(`/api/goals/${goal.body.data.id}/allocations`)
       .set('X-FinPilot-CSRF', csrfA).send({ action: 'reserve', amountCents: 4000000 })));
     expect(two.map((response) => response.status).sort()).toEqual([201, 409]);
+    const afterConcurrent = (await a.get('/api/goals')).body.data as Array<{
+      accountId: string; accountBalanceCents: number; accountReservedCents: number;
+    }>;
+    const accountState = afterConcurrent.find((goal) => goal.accountId === savingsA.id);
+    expect(accountState).toBeDefined();
+    expect(accountState!.accountReservedCents).toBeLessThanOrEqual(accountState!.accountBalanceCents);
     expect((await a.post(`/api/goals/${id}/archive`).set('X-FinPilot-CSRF', csrfA).send({})).status).toBe(204);
     expect((await a.get('/api/goals')).body.data.find((goal: {id: string}) => goal.id === id).reservedCents).toBe(0);
     expect((await a.post('/api/demo/reset').set('X-FinPilot-CSRF', csrfA).send({})).status).toBe(200);
@@ -70,5 +76,34 @@ describe.skipIf(!integrationUrl)('goals (real PostgreSQL)', () => {
     expect((await b.get('/api/goals')).status).toBe(200);
     expect((await a.post(`/api/goals/${randomUUID()}/allocations`).set('X-FinPilot-CSRF', csrfA)
       .send({ action: 'reserve', amountCents: 1 })).status).toBe(404);
+  });
+
+  it('does not over-reserve funds under repeated concurrent requests', async () => {
+    const agent = request.agent(app);
+    const session = await agent.get('/api/session');
+    expect(session.status).toBe(201);
+    const csrf = session.body.data.csrfToken as string;
+    const savings = (await agent.get('/api/accounts')).body.data[1];
+    const create = async (name: string) => agent.post('/api/goals')
+      .set('X-FinPilot-CSRF', csrf)
+      .send({ name, accountId: savings.id, targetCents: 20000000, dueDate: '2027-08-01' });
+    const [first, second] = await Promise.all([create('Test A'), create('Test B')]);
+    expect([first.status, second.status]).toEqual([201, 201]);
+    const ids = [first.body.data.id as string, second.body.data.id as string];
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const results = await Promise.all(ids.map((id) => agent.post(`/api/goals/${id}/allocations`)
+        .set('X-FinPilot-CSRF', csrf).send({ action: 'reserve', amountCents: 6000000 })));
+      expect(results.map((result) => result.status).sort()).toEqual([201, 409]);
+      const goals = (await agent.get('/api/goals')).body.data as Array<{
+        id: string; accountId: string; accountBalanceCents: number; accountReservedCents: number;
+      }>;
+      const account = goals.find((goal) => goal.accountId === savings.id);
+      expect(account).toBeDefined();
+      expect(account!.accountReservedCents).toBeLessThanOrEqual(account!.accountBalanceCents);
+      const winner = results.findIndex((result) => result.status === 201);
+      const released = await agent.post(`/api/goals/${ids[winner]}/allocations`)
+        .set('X-FinPilot-CSRF', csrf).send({ action: 'release', amountCents: 6000000 });
+      expect(released.status).toBe(201);
+    }
   });
 });
