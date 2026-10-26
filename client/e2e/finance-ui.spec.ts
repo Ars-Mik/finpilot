@@ -28,6 +28,7 @@ function responseFor(url: URL, method: string, body: unknown) {
     return { data: { month, budgets: [{ id: '00000000-0000-4000-8000-000000000002', month, category: 'Жильё', limitCents: 500000, spentCents: 600000, remainingCents: -100000 }, { id: '00000000-0000-4000-8000-000000000003', month, category: 'Продукты', limitCents: 1000000, spentCents: 100000, remainingCents: 900000 }], totalLimitCents: 1500000, coveredSpentCents: 700000, totalSpentCents: 700000, unbudgetedSpentCents: 0, overLimitCount: 1 } };
   }
   if (path === '/api/recurring') return { data: [] };
+  if (path === '/api/goals') return { data: [] };
   if (path === '/api/analytics') {
     const through = url.searchParams.get('through') ?? currentMonth;
     const count = Number(url.searchParams.get('months') ?? 6);
@@ -84,12 +85,12 @@ test.beforeEach(async ({ page }) => {
   await mockApi(page);
 });
 
-test('all seven application sections open without API errors', async ({ page }) => {
+test('all eight application sections open without API errors', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Обзор финансов', level: 1 })).toBeVisible();
   for (const [link, heading] of [
     ['Операции', 'Операции'], ['Счета', 'Счета'], ['Бюджеты', 'Бюджеты'],
-    ['Регулярные', 'Регулярные операции'], ['Прогноз', 'Прогноз и сценарии'], ['Аналитика', 'Аналитика'],
+    ['Регулярные', 'Регулярные операции'], ['Цели', 'Финансовые цели'], ['Прогноз', 'Прогноз и сценарии'], ['Аналитика', 'Аналитика'],
   ]) {
     await page.getByRole('navigation', { name: 'Основная навигация' }).getByRole('link', { name: link }).click();
     await expect(page.getByRole('heading', { name: heading, level: 1 })).toBeVisible();
@@ -144,4 +145,90 @@ test('demo reset uses the guest session CSRF token', async ({ page }) => {
   await page.getByRole('button', { name: 'Загрузить демоданные' }).click();
   await expect.poll(() => seen.length).toBe(1);
   expect(seen[0]).toBe('a'.repeat(64));
+});
+
+
+test('goals can be created, funded, edited and archived with CSRF protection', async ({ page }) => {
+  const id = '00000000-0000-4000-8000-000000000044';
+  const dueDate = new Date();
+  dueDate.setFullYear(dueDate.getFullYear() + 1);
+  const deadline = `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}-${String(dueDate.getDate()).padStart(2, '0')}`;
+  let goal: {
+    id: string; name: string; accountId: string; targetCents: number; dueDate: string;
+    status: 'active' | 'archived'; reservedCents: number; remainingCents: number;
+    accountBalanceCents: number; accountReservedCents: number;
+  } | null = null;
+  let csrfMutations = 0;
+  const allocations: { id: string; goalId: string; deltaCents: number; createdAt: string }[] = [];
+
+  await page.route((url) => url.pathname.startsWith('/api/goals'), async (route) => {
+    const req = route.request();
+    const path = new URL(req.url()).pathname;
+    const method = req.method();
+    if (method !== 'GET') {
+      expect(req.headers()['x-finpilot-csrf']).toBe('a'.repeat(64));
+      csrfMutations++;
+    }
+    if (path === '/api/goals' && method === 'GET') {
+      await route.fulfill({ json: { data: goal ? [goal] : [] } });
+    } else if (path === '/api/goals' && method === 'POST') {
+      const input = req.postDataJSON() as { name: string; accountId: string; targetCents: number; dueDate: string };
+      goal = { ...input, id, status: 'active', reservedCents: 0, remainingCents: input.targetCents,
+        accountBalanceCents: 10000000, accountReservedCents: 0 };
+      await route.fulfill({ status: 201, json: { data: goal } });
+    } else if (path === `/api/goals/${id}` && method === 'PATCH' && goal) {
+      const input = req.postDataJSON() as { name: string; targetCents: number; dueDate: string };
+      goal = { ...goal, ...input, remainingCents: input.targetCents - goal.reservedCents };
+      await route.fulfill({ json: { data: goal } });
+    } else if (path === `/api/goals/${id}/allocations` && method === 'POST' && goal) {
+      const input = req.postDataJSON() as { action: 'reserve' | 'release'; amountCents: number };
+      const delta = input.action === 'reserve' ? input.amountCents : -input.amountCents;
+      if (delta > goal.accountBalanceCents - goal.accountReservedCents) {
+        await route.fulfill({ status: 409, json: { error: { code: 'CONFLICT', message: 'Insufficient funds' } } });
+        return;
+      }
+      goal = { ...goal, reservedCents: goal.reservedCents + delta,
+        remainingCents: goal.remainingCents - delta, accountReservedCents: goal.accountReservedCents + delta };
+      allocations.unshift({ id: String(allocations.length), goalId: id, deltaCents: delta, createdAt: new Date().toISOString() });
+      await route.fulfill({ status: 201, json: { data: goal } });
+    } else if (path === `/api/goals/${id}/allocations` && method === 'GET') {
+      await route.fulfill({ json: { data: allocations } });
+    } else if (path === `/api/goals/${id}/archive` && method === 'POST' && goal) {
+      goal = { ...goal, status: 'archived', reservedCents: 0, accountReservedCents: 0,
+        remainingCents: goal.targetCents };
+      await route.fulfill({ status: 204, body: '' });
+    } else {
+      await route.fulfill({ status: 404, json: { error: { code: 'NOT_FOUND' } } });
+    }
+  });
+
+  await page.goto('/goals');
+  await expect(page.getByRole('heading', { name: 'Финансовые цели', level: 1 })).toBeVisible();
+  await page.getByRole('textbox', { name: 'Название' }).fill('Отпуск');
+  await page.getByRole('textbox', { name: 'Сумма цели, ₽' }).fill('200000');
+  await page.getByLabel('Срок').fill(deadline);
+  await page.getByRole('button', { name: 'Создать цель' }).click();
+  await expect(page.getByRole('heading', { name: 'Отпуск' })).toBeVisible();
+  await page.getByRole('button', { name: 'Пополнить' }).click();
+  await page.getByRole('textbox', { name: 'Зарезервировать, ₽' }).fill('150000');
+  await page.getByRole('button', { name: 'Подтвердить' }).click();
+  await expect(page.getByRole('alert')).toContainText('Не хватает свободных средств');
+  await page.getByRole('textbox', { name: 'Зарезервировать, ₽' }).fill('40000');
+  await page.getByRole('button', { name: 'Подтвердить' }).click();
+  await expect(page.getByRole('progressbar', { name: 'Прогресс: Отпуск' })).toHaveAttribute('aria-valuenow', '20');
+  await page.getByRole('button', { name: 'Вернуть' }).click();
+  await page.getByRole('textbox', { name: 'Вернуть в свободный остаток, ₽' }).fill('10000');
+  await page.getByRole('button', { name: 'Подтвердить' }).click();
+  await expect(page.getByRole('progressbar', { name: 'Прогресс: Отпуск' })).toHaveAttribute('aria-valuenow', '15');
+  await page.getByRole('button', { name: 'История' }).click();
+  await expect(page.getByRole('heading', { name: 'История резервирований' })).toBeVisible();
+  await page.getByRole('button', { name: 'Изменить' }).click();
+  await page.getByRole('textbox', { name: 'Название' }).fill('Отпуск у моря');
+  await page.getByRole('button', { name: 'Сохранить изменения' }).click();
+  await expect(page.getByRole('heading', { name: 'Отпуск у моря' })).toBeVisible();
+  page.once('dialog', (dialog) => { void dialog.accept(); });
+  await page.getByRole('button', { name: 'Архив' , exact: true }).click();
+  await page.getByRole('button', { name: 'Архив (1)' }).click();
+  await expect(page.getByRole('heading', { name: 'Отпуск у моря' })).toBeVisible();
+  expect(csrfMutations).toBe(6);
 });
