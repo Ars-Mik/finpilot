@@ -64,7 +64,8 @@ async function migrate(): Promise<void> {
     )).rows[0]!.quoted;
     await client.query(`GRANT USAGE ON SCHEMA public TO ${roleIdent}`);
     await client.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON
-      accounts, transactions, account_transfers, monthly_budgets, recurring_rules TO ${roleIdent}`);
+      accounts, transactions, account_transfers, monthly_budgets, recurring_rules, savings_goals TO ${roleIdent}`);
+    await client.query(`GRANT SELECT, INSERT, DELETE ON goal_allocations TO ${roleIdent}`);
     await client.query(`GRANT SELECT, INSERT ON workspaces, guest_sessions TO ${roleIdent}`);
     await client.query(`GRANT SELECT, INSERT, UPDATE ON guest_session_rate_limits TO ${roleIdent}`);
     const permission = await client.query<{ rolsuper: boolean; rolbypassrls: boolean }>(

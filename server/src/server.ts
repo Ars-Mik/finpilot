@@ -8,6 +8,7 @@ import { PgRecurringRepository } from './modules/recurring/pg-recurring.reposito
 import { PgForecastRepository } from './modules/forecast/pg-forecast.repository.js';
 import { PgAnalyticsRepository } from './modules/analytics/pg-analytics.repository.js';
 import { GuestSessions } from './security/guest-sessions.js';
+import { PgGoalRepository } from './modules/goals/pg-goal.repository.js';
 import { createWorkspacePool } from './security/workspace-db.js';
 
 const config = loadRuntimeConfig();
@@ -21,6 +22,7 @@ const app = createApp({
   recurring: new PgRecurringRepository(workspacePool),
   forecast: new PgForecastRepository(workspacePool),
   analytics: new PgAnalyticsRepository(workspacePool),
+  goals: new PgGoalRepository(workspacePool),
   guestSessions,
   clientOrigin: config.CLIENT_ORIGIN,
   ...(config.TRUSTED_PROXY_CIDRS !== undefined

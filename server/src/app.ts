@@ -23,8 +23,10 @@ import type { ForecastRepository } from './modules/forecast/forecast.repository.
 import { analyticsQuerySchema } from './modules/analytics/analytics.schema.js';
 import type { AnalyticsRepository } from './modules/analytics/analytics.repository.js';
 import type { GuestSessions } from './security/guest-sessions.js';
+import { goalIdSchema, goalCreateSchema, goalPatchSchema, allocationInputSchema } from './modules/goals/goal.schema.js';
+import { GoalConflictError, GoalMissingError, type GoalRepository } from './modules/goals/goal.repository.js';
 
-type AppDependencies = { repository: TransactionRepository; accounts?: AccountRepository; budgets?: BudgetRepository; recurring?: RecurringRepository; forecast?: ForecastRepository; analytics?: AnalyticsRepository; guestSessions?: GuestSessions; now?: () => Date; clientOrigin: string; trustedProxies?: string };
+type AppDependencies = { repository: TransactionRepository; accounts?: AccountRepository; budgets?: BudgetRepository; recurring?: RecurringRepository; forecast?: ForecastRepository; analytics?: AnalyticsRepository; goals?: GoalRepository; guestSessions?: GuestSessions; now?: () => Date; clientOrigin: string; trustedProxies?: string };
 
 const invalidInput = (error: ZodError) => ({
   error: { code: 'VALIDATION_ERROR', message: 'Invalid request data', issues: z.treeifyError(error) },
@@ -32,7 +34,7 @@ const invalidInput = (error: ZodError) => ({
 
 const notFound = { error: { code: 'NOT_FOUND', message: 'Transaction not found' } };
 
-export function createApp({ repository, accounts, budgets, recurring, forecast, analytics, guestSessions, now = () => new Date(), clientOrigin, trustedProxies }: AppDependencies) {
+export function createApp({ repository, accounts, budgets, recurring, forecast, analytics, goals, guestSessions, now = () => new Date(), clientOrigin, trustedProxies }: AppDependencies) {
   const app = express();
   app.disable('x-powered-by');
   if (trustedProxies && trustedProxies !== 'direct') app.set('trust proxy', trustedProxies);
@@ -167,6 +169,52 @@ export function createApp({ repository, accounts, budgets, recurring, forecast, 
     });
   }
 
+  if (goals) {
+    app.get('/api/goals', async (_request: Request, response: Response) => {
+      response.json({ data: await goals.list() });
+    });
+    app.post('/api/goals', async (request: Request, response: Response) => {
+      const parsed = goalCreateSchema.safeParse(request.body);
+      if (!parsed.success) { response.status(422).json(invalidInput(parsed.error)); return; }
+      const goal = await goals.create(parsed.data);
+      response.status(201).location(`/api/goals/${goal.id}`).json({ data: goal });
+    });
+    app.patch('/api/goals/:id', async (request: Request, response: Response) => {
+      const id = goalIdSchema.safeParse(request.params.id);
+      const parsed = goalPatchSchema.safeParse(request.body);
+      if (!id.success) { response.status(422).json(invalidInput(id.error)); return; }
+      if (!parsed.success) { response.status(422).json(invalidInput(parsed.error)); return; }
+      const goal = await goals.update(id.data, parsed.data);
+      if (!goal) { response.status(404).json({ error: { code: 'NOT_FOUND', message: 'Goal not found' } }); return; }
+      response.json({ data: goal });
+    });
+    app.post('/api/goals/:id/allocations', async (request: Request, response: Response) => {
+      const id = goalIdSchema.safeParse(request.params.id);
+      const parsed = allocationInputSchema.safeParse(request.body);
+      if (!id.success) { response.status(422).json(invalidInput(id.error)); return; }
+      if (!parsed.success) { response.status(422).json(invalidInput(parsed.error)); return; }
+      response.status(201).json({ data: await goals.allocate(id.data, parsed.data) });
+    });
+    app.get('/api/goals/:id/allocations', async (request: Request, response: Response) => {
+      const id = goalIdSchema.safeParse(request.params.id);
+      if (!id.success) { response.status(422).json(invalidInput(id.error)); return; }
+      const items = await goals.history(id.data);
+      if (!items) { response.status(404).json({ error: { code: 'NOT_FOUND', message: 'Goal not found' } }); return; }
+      response.json({ data: items });
+    });
+    app.post('/api/goals/:id/archive', async (request: Request, response: Response) => {
+      const id = goalIdSchema.safeParse(request.params.id);
+      if (!id.success) { response.status(422).json(invalidInput(id.error)); return; }
+      if (request.body && (typeof request.body !== 'object' || Object.keys(request.body).length)) {
+        response.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'Request body must be empty' } }); return;
+      }
+      if (!await goals.archive(id.data)) {
+        response.status(404).json({ error: { code: 'NOT_FOUND', message: 'Goal not found' } }); return;
+      }
+      response.status(204).send();
+    });
+  }
+
   if (analytics) {
     app.get('/api/analytics', async (request: Request, response: Response) => {
       const parsed = analyticsQuerySchema.safeParse(request.query);
@@ -239,6 +287,14 @@ export function createApp({ repository, accounts, budgets, recurring, forecast, 
   const errorHandler: ErrorRequestHandler = (error: unknown, _request, response, _next) => {
     if (error instanceof SyntaxError && 'body' in error) {
       response.status(400).json({ error: { code: 'INVALID_JSON', message: 'Malformed JSON body' } });
+      return;
+    }
+    if (error instanceof GoalMissingError) {
+      response.status(404).json({ error: { code: 'NOT_FOUND', message: 'Goal or account not found' } });
+      return;
+    }
+    if (error instanceof GoalConflictError) {
+      response.status(409).json({ error: { code: 'CONFLICT', message: error.message } });
       return;
     }
     if (error instanceof AccountMissingError) {

@@ -12,10 +12,11 @@ import { PgBudgetRepository } from '../src/modules/budgets/pg-budget.repository.
 import { PgRecurringRepository } from '../src/modules/recurring/pg-recurring.repository.js';
 import { PgForecastRepository } from '../src/modules/forecast/pg-forecast.repository.js';
 import { PgAnalyticsRepository } from '../src/modules/analytics/pg-analytics.repository.js';
+import { PgGoalRepository } from '../src/modules/goals/pg-goal.repository.js';
 
 const origin = 'http://localhost:5173';
 const integrationUrl = process.env.INTEGRATION_DATABASE_URL;
-const protectedTables = ['accounts', 'transactions', 'account_transfers', 'monthly_budgets', 'recurring_rules'] as const;
+const protectedTables = ['accounts', 'transactions', 'account_transfers', 'monthly_budgets', 'recurring_rules', 'savings_goals', 'goal_allocations'] as const;
 
 // Locally this suite is optional, because it creates real demo workspaces.
 // In CI it MUST run against an isolated PostgreSQL service: a silent skip
@@ -42,6 +43,7 @@ describe.skipIf(!integrationUrl)('guest isolation (real PostgreSQL)', () => {
       recurring: new PgRecurringRepository(scoped),
       forecast: new PgForecastRepository(scoped),
       analytics: new PgAnalyticsRepository(scoped),
+      goals: new PgGoalRepository(scoped),
       guestSessions: sessions,
       clientOrigin: origin,
     });
@@ -49,7 +51,7 @@ describe.skipIf(!integrationUrl)('guest isolation (real PostgreSQL)', () => {
 
   afterAll(async () => { await pool?.end(); });
 
-  it('uses a nonprivileged role and enforces RLS on all five financial tables', async () => {
+  it('uses a nonprivileged role and enforces RLS on all seven financial tables', async () => {
     const role = await pool.query<{
       rolsuper: boolean; rolbypassrls: boolean; rolcreaterole: boolean; rolcreatedb: boolean;
     }>(

@@ -54,4 +54,14 @@ export async function seedDemo(client: PoolClient, today: Date): Promise<void> {
      VALUES ($1, $2, $3, 300000, 'В накопления', $4::date)`,
     [randomUUID(), mainId, savingsId, firstDay],
   );
+  const goalId = randomUUID();
+  await client.query(
+    `INSERT INTO savings_goals (id, account_id, name, target_cents, due_date)
+     VALUES ($1, $2, 'Отпуск', 20000000, $3::date)`,
+    [goalId, savingsId, calendarDate(today.getUTCFullYear(), today.getUTCMonth() + 8, 1)],
+  );
+  await client.query(
+    'INSERT INTO goal_allocations (id, goal_id, delta_cents) VALUES ($1, $2, 2000000)',
+    [randomUUID(), goalId],
+  );
 }

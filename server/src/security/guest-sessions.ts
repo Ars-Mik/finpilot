@@ -139,7 +139,7 @@ export class GuestSessions {
     const client = await this.scopedPool.connect();
     try {
       await client.query('BEGIN');
-      for (const table of ['transactions', 'account_transfers', 'recurring_rules', 'monthly_budgets', 'accounts']) {
+      for (const table of ['goal_allocations', 'savings_goals', 'transactions', 'account_transfers', 'recurring_rules', 'monthly_budgets', 'accounts']) {
         await client.query(`DELETE FROM ${table}`);
       }
       await seedDemo(client, this.now());
